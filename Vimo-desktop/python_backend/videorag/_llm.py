@@ -16,7 +16,7 @@ from .base import BaseKVStorage
 from ._utils import EmbeddingFunc
 
 global_openai_async_client = None
-global_dashscope_async_client = None
+global_caption_async_client = None
 
 def get_openai_async_client_instance(global_config):
     global global_openai_async_client
@@ -27,14 +27,14 @@ def get_openai_async_client_instance(global_config):
         )
     return global_openai_async_client
 
-def get_dashscope_async_client_instance(global_config):
-    global global_dashscope_async_client
-    if global_dashscope_async_client is None:
-        global_dashscope_async_client = AsyncOpenAI(
-            api_key=global_config["ali_dashscope_api_key"],
-            base_url=global_config["ali_dashscope_base_url"],
+def get_caption_async_client_instance(global_config):
+    global global_caption_async_client
+    if global_caption_async_client is None:
+        global_caption_async_client = AsyncOpenAI(
+            api_key=global_config["caption_api_key"],
+            base_url=global_config["caption_base_url"],
         )
-    return global_dashscope_async_client
+    return global_caption_async_client
 
 # Setup LLM Configuration.
 @dataclass
@@ -160,21 +160,21 @@ async def openai_embedding(model_name: str, texts: list[str], **kwargs) -> np.nd
     wait=wait_exponential(multiplier=1, min=4, max=10),
     retry=retry_if_exception_type((RateLimitError, APIConnectionError)),
 )
-async def dashscope_caption_complete(
+async def caption_complete(
     model_name, content_list, **kwargs
 ) -> str:
     """
-    DashScope vision model completion for video caption
+    Vision model completion for video caption using an OpenAI-compatible API.
     content_list: list of {"type": "image_url", "image_url": {"url": "..."}} and {"type": "text", "text": "..."}
     """
-    dashscope_async_client = get_dashscope_async_client_instance(kwargs["global_config"])
+    caption_async_client = get_caption_async_client_instance(kwargs["global_config"])
     
     messages = [
         {"role": "system", "content": "You are a helpful assistant."},
         {"role": "user", "content": content_list}
     ]
     
-    response = await dashscope_async_client.chat.completions.create(
+    response = await caption_async_client.chat.completions.create(
         model=model_name, 
         messages=messages, 
     )
@@ -202,7 +202,7 @@ openai_4o_mini_config = LLMConfig(
     cheap_model_max_async = 16,
     
     # Caption model
-    caption_model_func_raw = dashscope_caption_complete,
+    caption_model_func_raw = caption_complete,
     caption_model_name = "qwen-vl-plus-latest",
     caption_model_max_async = 3
 )

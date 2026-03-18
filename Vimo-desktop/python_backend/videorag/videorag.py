@@ -80,8 +80,8 @@ class VideoRAG:
     enable_naive_rag: bool = True
 
     # api key
-    ali_dashscope_api_key: str = None
-    ali_dashscope_base_url: str = None
+    caption_api_key: str = None
+    caption_base_url: str = None
     caption_model: str = None
     asr_model: str = None
 
@@ -132,8 +132,8 @@ class VideoRAG:
         # Configure logger to write to file
         log_file = os.path.join(self.working_dir, "log.txt")
         
-        assert self.ali_dashscope_api_key is not None, "ali_dashscope_api_key is required"
-        assert self.ali_dashscope_base_url is not None, "ali_dashscope_base_url is required"
+        assert self.caption_api_key is not None, "caption_api_key is required"
+        assert self.caption_base_url is not None, "caption_base_url is required"
         assert self.caption_model is not None, "caption_model is required"
         assert self.asr_model is not None, "asr_model is required"
         assert self.openai_api_key is not None, "openai_api_key is required"
@@ -183,8 +183,8 @@ class VideoRAG:
             "query_better_than_threshold": self.query_better_than_threshold,
             "enable_local": self.enable_local,
             "enable_naive_rag": self.enable_naive_rag,
-            "ali_dashscope_api_key": self.ali_dashscope_api_key,
-            "ali_dashscope_base_url": self.ali_dashscope_base_url,
+            "caption_api_key": self.caption_api_key,
+            "caption_base_url": self.caption_base_url,
             "caption_model": self.caption_model,
             "asr_model": self.asr_model,
             "openai_api_key": self.openai_api_key,

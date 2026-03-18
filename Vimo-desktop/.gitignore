@@ -11,6 +11,7 @@ python_backend/build/
 python_backend/dist/
 python_backend/log.txt
 python_backend/videorag_api.spec
+python_backend/data/
 resources/
 electron-builder.yml
 package_build.json
