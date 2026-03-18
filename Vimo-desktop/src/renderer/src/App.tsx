@@ -19,27 +19,33 @@ function AppContent() {
   useEffect(() => {
     const checkInitialization = async () => {
       try {
-        // Load settings to check if initialization is complete
-        const result = await window.api.loadSettings();
-        
-        if (result.success && result.settings) {
-          const { storeDirectory, imagebindInstalled } = result.settings;
-          
-          // If store directory exists and models are marked as installed, 
-          // further verify that model files actually exist
-          if (storeDirectory && imagebindInstalled) {
-            try {
-              const modelCheck = await window.api.checkModelFiles(storeDirectory);
-              setIsInitialized(modelCheck.imagebind);
-            } catch (error) {
-              console.warn('Failed to check model files:', error);
-              setIsInitialized(false);
-            }
-          } else {
+        // First, check if backend config provides a storage directory
+        let storeDirectory = '';
+        try {
+          const configResult = await window.api.videorag.getConfig();
+          if (configResult.success && configResult.data?.base_storage_path) {
+            storeDirectory = configResult.data.base_storage_path;
+          }
+        } catch {
+          // Backend not reachable yet — fall through
+        }
+
+        // If we have a storage directory, check if ImageBind is installed
+        if (storeDirectory) {
+          try {
+            const modelCheck = await window.api.checkModelFiles(storeDirectory);
+            setIsInitialized(modelCheck.imagebind);
+          } catch {
             setIsInitialized(false);
           }
         } else {
-          setIsInitialized(false);
+          // Fallback: check local settings for imagebindInstalled flag
+          const result = await window.api.loadSettings();
+          if (result.success && result.settings?.imagebindInstalled) {
+            setIsInitialized(true);
+          } else {
+            setIsInitialized(false);
+          }
         }
       } catch (error) {
         console.error('Failed to check initialization:', error);

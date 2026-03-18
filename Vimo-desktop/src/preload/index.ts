@@ -118,6 +118,7 @@ export interface VideoRAGAPI {
     releaseImageBind: () => Promise<{ success: boolean; data?: any; error?: string }>;
     imagebindStatus: () => Promise<{ success: boolean; data?: any; error?: string }>;
     reinitializeConfig: () => Promise<{ success: boolean; message?: string; error?: string }>;
+    getConfig: () => Promise<{ success: boolean; data?: any; error?: string }>;
   };
 
   // App control
@@ -201,7 +202,8 @@ const api: VideoRAGAPI = {
     loadImageBind: () => ipcRenderer.invoke('videorag:load-imagebind'),
     releaseImageBind: () => ipcRenderer.invoke('videorag:release-imagebind'),
     imagebindStatus: () => ipcRenderer.invoke('videorag:imagebind-status'),
-    reinitializeConfig: () => ipcRenderer.invoke('videorag:reinitialize-config')
+    reinitializeConfig: () => ipcRenderer.invoke('videorag:reinitialize-config'),
+    getConfig: () => ipcRenderer.invoke('videorag:get-config'),
   },
 
   // App control

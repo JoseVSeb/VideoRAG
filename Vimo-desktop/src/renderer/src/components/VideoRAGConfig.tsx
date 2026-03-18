@@ -20,20 +20,14 @@ export const VideoRAGConfigModal = ({ isOpen, onClose }: VideoRAGConfigProps) =>
   } = useVideoRAGService()
   
   const [config, setConfig] = useState<VideoRAGConfig>({
-    ali_dashscope_api_key: '',
-    ali_dashscope_base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-    openai_api_key: '',
-    openai_base_url: 'https://api.nuwaapi.com/v1',
-    image_bind_model_path: '/Users/renxubin/Desktop/videorag-store/imagebind_huge/imagebind_huge.pth',
-    base_storage_path: './videorag-sessions'
+    processingModel: '',
+    analysisModel: '',
+    caption_model: '',
+    asr_model: '',
   })
   
-  // Local check configuration completeness, not dependent on network status
-  const isConfigured = !!(config.openai_api_key && 
-                          config.ali_dashscope_api_key && 
-                          config.image_bind_model_path)
-  
-  const [showApiKeys, setShowApiKeys] = useState(false)
+  // Local check: always considered configured since system config comes from backend env vars
+  const isConfigured = true
 
   // Load saved config from localStorage
   useEffect(() => {
@@ -58,23 +52,10 @@ export const VideoRAGConfigModal = ({ isOpen, onClose }: VideoRAGConfigProps) =>
     // Save config to localStorage
     localStorage.setItem('videorag-config', JSON.stringify(config))
     
-    // Initialize VideoRAG
+    // Initialize VideoRAG with model selections
     const success = await initialize(config)
     if (success) {
       onClose()
-    }
-  }
-
-  const selectImageBindPath = async () => {
-    try {
-      const result = await window.api.selectFolder()
-      if (result.success && result.path) {
-        // Assume the model file is in the selected folder
-        const modelPath = `${result.path}/imagebind_huge.pth`
-        handleConfigChange('image_bind_model_path', modelPath)
-      }
-    } catch (error) {
-      console.error('Failed to select folder:', error)
     }
   }
 
@@ -180,11 +161,9 @@ export const VideoRAGConfigModal = ({ isOpen, onClose }: VideoRAGConfigProps) =>
                   Configuration: {isConfigured ? 'Complete' : 'Incomplete'}
                 </span>
               </div>
-              {isConfigured && (
-                <p className="text-sm text-green-600 mt-1">
-                  Global configuration is set and ready for use
-                </p>
-              )}
+              <p className="text-sm text-gray-500 mt-1">
+                System configuration (API keys, base URLs, storage) is managed via backend environment variables.
+              </p>
             </div>
           </div>
 
@@ -208,113 +187,39 @@ export const VideoRAGConfigModal = ({ isOpen, onClose }: VideoRAGConfigProps) =>
             </div>
           )}
 
-          {/* API Keys Section */}
+          {/* Model Selection Section */}
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="font-medium">API Keys</h3>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => setShowApiKeys(!showApiKeys)}
-              >
-                {showApiKeys ? 'Hide' : 'Show'} Keys
-              </Button>
-            </div>
+            <h3 className="font-medium">Model Selection</h3>
+            <p className="text-sm text-gray-500">
+              Choose models for different tasks. Leave blank to use backend defaults.
+            </p>
 
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium mb-1">
-                  OpenAI API Key *
+                  Processing Model
                 </label>
                 <input
-                  type={showApiKeys ? 'text' : 'password'}
-                  value={config.openai_api_key}
-                  onChange={(e) => handleConfigChange('openai_api_key', e.target.value)}
-                  placeholder="sk-..."
+                  type="text"
+                  value={config.processingModel || ''}
+                  onChange={(e) => handleConfigChange('processingModel', e.target.value)}
+                  placeholder="gpt-4o-mini (default)"
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
 
               <div>
                 <label className="block text-sm font-medium mb-1">
-                  OpenAI Base URL
+                  Analysis Model
                 </label>
                 <input
                   type="text"
-                  value={config.openai_base_url}
-                  onChange={(e) => handleConfigChange('openai_base_url', e.target.value)}
-                  placeholder="https://api.openai.com/v1"
+                  value={config.analysisModel || ''}
+                  onChange={(e) => handleConfigChange('analysisModel', e.target.value)}
+                  placeholder="gpt-4o-mini (default)"
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1">
-                  Alibaba DashScope API Key *
-                </label>
-                <input
-                  type={showApiKeys ? 'text' : 'password'}
-                  value={config.ali_dashscope_api_key}
-                  onChange={(e) => handleConfigChange('ali_dashscope_api_key', e.target.value)}
-                  placeholder="sk-..."
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1">
-                  DashScope Base URL
-                </label>
-                <input
-                  type="text"
-                  value={config.ali_dashscope_base_url}
-                  onChange={(e) => handleConfigChange('ali_dashscope_base_url', e.target.value)}
-                  placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Model Path Section */}
-          <div className="space-y-4">
-            <h3 className="font-medium">Model Configuration</h3>
-            
-            <div>
-              <label className="block text-sm font-medium mb-1">
-                ImageBind Model Path *
-              </label>
-              <div className="flex space-x-2">
-                <input
-                  type="text"
-                  value={config.image_bind_model_path}
-                  onChange={(e) => handleConfigChange('image_bind_model_path', e.target.value)}
-                  placeholder="/path/to/imagebind_huge.pth"
-                  className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-                <Button onClick={selectImageBindPath} variant="outline">
-                  Browse
-                </Button>
-              </div>
-              <p className="text-xs text-gray-500 mt-1">
-                Path to the ImageBind model file (imagebind_huge.pth)
-              </p>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium mb-1">
-                Base Storage Directory
-              </label>
-              <input
-                type="text"
-                value={config.base_storage_path}
-                onChange={(e) => handleConfigChange('base_storage_path', e.target.value)}
-                placeholder="./videorag-sessions"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                Base directory where each chat session will create its own subdirectory
-              </p>
             </div>
           </div>
         </div>
@@ -325,7 +230,7 @@ export const VideoRAGConfigModal = ({ isOpen, onClose }: VideoRAGConfigProps) =>
           </Button>
           <Button 
             onClick={handleSave}
-            disabled={loading.initializing || !config.openai_api_key || !config.ali_dashscope_api_key || !config.image_bind_model_path}
+            disabled={loading.initializing}
           >
             {loading.initializing ? 'Configuring...' : 'Save & Configure'}
           </Button>

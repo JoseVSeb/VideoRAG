@@ -2,19 +2,29 @@ import { ipcMain } from 'electron';
 import { readFile, writeFile, access, mkdir, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
+import axios from 'axios';
 
-// Bootstrap configuration file path
-const BOOTSTRAP_CONFIG_FILE = join(homedir(), '.videorag-bootstrap.json');
-
-// Helper function to get the storage directory path
+// Helper function to get the storage directory path from the backend API
 async function getStorageDirectory(): Promise<string | null> {
   try {
+    // Try to get the storage path from the running backend API
+    const apiUrl = process.env.VIDEORAG_API_URL || 'http://localhost:64451/api';
+    const response = await axios.get(`${apiUrl}/config`, { timeout: 5000 });
+    if (response.data?.success && response.data?.base_storage_path) {
+      return response.data.base_storage_path;
+    }
+  } catch {
+    // Backend not reachable — fall back to legacy bootstrap config
+  }
+
+  // Fallback: try legacy bootstrap config file
+  try {
+    const BOOTSTRAP_CONFIG_FILE = join(homedir(), '.videorag-bootstrap.json');
     await access(BOOTSTRAP_CONFIG_FILE);
     const content = await readFile(BOOTSTRAP_CONFIG_FILE, 'utf-8');
     const bootstrap = JSON.parse(content);
     return bootstrap.storeDirectory || null;
-  } catch (error) {
-    // Bootstrap file doesn't exist or invalid
+  } catch {
     return null;
   }
 }
@@ -256,16 +266,13 @@ export function registerChatSessionHandlers(): void {
   // Get storage directory info
   ipcMain.handle('get-storage-info', async () => {
     try {
-      await access(BOOTSTRAP_CONFIG_FILE);
-      const content = await readFile(BOOTSTRAP_CONFIG_FILE, 'utf-8');
-      const bootstrap = JSON.parse(content);
-      
+      const storeDirectory = await getStorageDirectory();
       return { 
         success: true, 
-        storeDirectory: bootstrap.storeDirectory,
-        isConfigured: !!bootstrap.storeDirectory
+        storeDirectory,
+        isConfigured: !!storeDirectory
       };
-    } catch (error) {
+    } catch {
       return { 
         success: true, 
         storeDirectory: null,
