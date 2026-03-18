@@ -26,8 +26,8 @@ export const VideoRAGConfigModal = ({ isOpen, onClose }: VideoRAGConfigProps) =>
     asr_model: '',
   })
   
-  // Local check: always considered configured since system config comes from backend env vars
-  const isConfigured = true
+  // Configuration is considered ready when the backend service is running
+  const isConfigured = serviceState.isRunning
 
   // Load saved config from localStorage
   useEffect(() => {
