@@ -1,17 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from './ui/button';
 import {
-  FolderOpen,
   Download,
   CheckCircle,
   RefreshCw,
   Sparkles,
   ArrowRight,
-  ArrowLeft,
-  Settings,
   Brain,
   Star,
-  ExternalLink,
 } from 'lucide-react';
 import vimoLogo from '../assets/images/vimi-logo.png';
 
@@ -22,10 +18,8 @@ interface InitializationWizardProps {
 const InitializationWizard: React.FC<InitializationWizardProps> = ({ onComplete }) => {
   // Define steps configuration
   const steps = [
-    { step: 1, icon: FolderOpen, label: 'Directory' },
-    { step: 2, icon: Download, label: 'Models' },
-    { step: 3, icon: Brain, label: 'API Keys' },
-    { step: 4, icon: Star, label: 'Complete' }
+    { step: 1, icon: Download, label: 'Models' },
+    { step: 2, icon: Star, label: 'Complete' }
   ];
   const totalSteps = steps.length;
   
@@ -36,31 +30,16 @@ const InitializationWizard: React.FC<InitializationWizardProps> = ({ onComplete 
   const [isInitializing, setIsInitializing] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   
-  // API Key configuration status
-  const [apiKeySettings, setApiKeySettings] = useState({
-    openaiBaseUrl: 'https://api.openai.com/v1',
-    openaiApiKey: '',
-    processingModel: 'gpt-4o-mini',
-    analysisModel: 'gpt-4o-mini',
-    dashscopeApiKey: '',
-    captionModel: 'qwen-vl-plus-latest',
-    asrModel: 'paraformer-realtime-v2'
-  });
 
-
-  // Initialize component - check for existing settings and models
+  // Initialize component - fetch storage directory from backend and check models
   useEffect(() => {
     const initializeComponent = async () => {
       try {
-        // Load existing settings
-        const settingsResult = await window.api.loadSettings();
-        
-        if (settingsResult.success && settingsResult.settings?.storeDirectory) {
-          const existingDirectory = settingsResult.settings.storeDirectory;
-          setStoreDirectory(existingDirectory);
-          
-          // Check if models already exist in the stored directory
-          await checkModelFiles(existingDirectory);
+        const configResult = await window.api.videorag.getConfig();
+        if (configResult.success && configResult.data?.base_storage_path) {
+          const directory = configResult.data.base_storage_path;
+          setStoreDirectory(directory);
+          await checkModelFiles(directory);
         }
       } catch (error) {
         console.error('Failed to initialize component:', error);
@@ -113,20 +92,6 @@ const InitializationWizard: React.FC<InitializationWizardProps> = ({ onComplete 
     }
   };
 
-  // Select storage directory
-  const selectDirectory = async () => {
-    try {
-      const result = await window.api.selectFolder();
-      if (result.success && result.path) {
-        setStoreDirectory(result.path);
-        // Check if model files already exist in this directory
-        setTimeout(() => checkModelFiles(result.path), 500);
-      }
-    } catch (error) {
-      console.error('Failed to select directory:', error);
-    }
-  };
-
   // Download ImageBind model
   const downloadImageBind = async () => {
     if (!storeDirectory) return;
@@ -154,10 +119,7 @@ const InitializationWizard: React.FC<InitializationWizardProps> = ({ onComplete 
   };
 
   // Check if can proceed to next step
-  const canProceedToStep2 = storeDirectory !== '';
-  const canProceedToStep3 = imagebindStatus === 'completed';
-  // API keys are optional but recommended
-  const canProceedToStep4 = canProceedToStep3;
+  const canProceedToStep2 = imagebindStatus === 'completed';
 
   // Handle step transitions with animation
   const goToStep = (step: number) => {
@@ -189,33 +151,14 @@ const InitializationWizard: React.FC<InitializationWizardProps> = ({ onComplete 
     }
   };
 
-  // Handle API key changes
-  const handleApiKeyChange = (field: string, value: string) => {
-    setApiKeySettings(prev => ({
-      ...prev,
-      [field]: value
-    }));
-  };
-
-
-
   // Complete initialization
   const completeInitialization = async () => {
-    // Save configuration including API keys
     const settings = {
-      storeDirectory,
       imagebindInstalled: true,
-      ...apiKeySettings, // Include API key settings
       initializedAt: new Date().toISOString()
     };
     
     await window.api.saveSettings(settings);
-    
-    // Trigger configuration update event, notify sidebar to reload sessions
-    const event = new CustomEvent('storage-config-updated', {
-      detail: { storeDirectory }
-    });
-    window.dispatchEvent(event);
     
     onComplete();
   };
@@ -234,61 +177,7 @@ const InitializationWizard: React.FC<InitializationWizardProps> = ({ onComplete 
     );
   }
 
-  const renderStep1 = () => (
-    <div className="space-y-6">
-      <div className="text-center">
-        <h2 className="text-2xl font-bold text-gray-900 mb-3">Select Storage Location</h2>
-        <p className="text-gray-600 max-w-2xl mx-auto">
-          Choose a safe location to store your AI models and data files
-        </p>
-      </div>
-
-      <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-xl p-6 border border-blue-100">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 bg-gradient-to-r from-blue-500 to-purple-500 rounded-lg flex items-center justify-center">
-            <FolderOpen className="w-5 h-5 text-white" />
-          </div>
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900">Data Storage Directory</h3>
-            <p className="text-sm text-gray-600">AI models and Vimo cache data will be stored at this location</p>
-          </div>
-        </div>
-
-        <div className="space-y-4">
-          <div className="flex gap-3">
-            <input
-              type="text"
-              placeholder="Click browse to select directory..."
-              value={storeDirectory}
-              readOnly
-              className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white focus:outline-none focus:border-purple-400 transition-colors"
-            />
-            <Button 
-              onClick={selectDirectory} 
-              className="px-4 py-2 bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white rounded-lg font-medium transition-all"
-            >
-              <FolderOpen className="w-4 h-4 mr-2" />
-              Select
-            </Button>
-          </div>
-
-        </div>
-      </div>
-
-      <div className="flex justify-end">
-        <Button 
-          onClick={() => goToStep(2)} 
-          disabled={!canProceedToStep2}
-          className="px-6 py-2 bg-gradient-to-r from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600 text-white rounded-lg font-medium transition-all disabled:opacity-50"
-        >
-          Next
-          <ArrowRight className="w-4 h-4 ml-2" />
-        </Button>
-      </div>
-    </div>
-  );
-
-  const renderStep2 = () => (
+  const renderModelDownload = () => (
     <div className="space-y-6">
       <div className="text-center">
         <div className="flex items-center justify-center gap-3 mb-3">
@@ -306,7 +195,7 @@ const InitializationWizard: React.FC<InitializationWizardProps> = ({ onComplete 
           </Button>
         </div>
         <p className="text-gray-600">
-          {canProceedToStep3 
+          {canProceedToStep2 
             ? "All AI models are already available and ready to use!" 
             : "Preparing powerful AI models for you, this may take a few minutes"
           }
@@ -369,199 +258,14 @@ const InitializationWizard: React.FC<InitializationWizardProps> = ({ onComplete 
 
       </div>
 
-      <div className="flex justify-between items-center">
+      <div className="flex justify-end">
         <Button 
-          onClick={() => goToStep(1)} 
-          className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-medium transition-all"
-        >
-          <ArrowLeft className="w-4 h-4 mr-2" />
-          Back
-        </Button>
-        
-        <Button 
-          onClick={() => goToStep(3)} 
-          disabled={!canProceedToStep3}
+          onClick={() => goToStep(2)} 
+          disabled={!canProceedToStep2}
           className="px-6 py-2 bg-gradient-to-r from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600 text-white rounded-lg font-medium transition-all disabled:opacity-50"
         >
           Next
           <ArrowRight className="w-4 h-4 ml-2" />
-        </Button>
-      </div>
-    </div>
-  );
-
-  const renderApiKeySetup = () => (
-    <div className="space-y-6">
-      <div className="text-center">
-        <h2 className="text-2xl font-bold text-gray-900 mb-2">API Key Configuration</h2>
-        <p className="text-gray-600">
-          Configure your API keys for enhanced video analysis capabilities
-        </p>
-        <p className="text-sm text-gray-500 mt-2">
-          All API keys are stored locally and never shared with third parties
-        </p>
-      </div>
-
-      <div className="space-y-6">
-        {/* OpenAI Configuration */}
-        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-6 border border-blue-100">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-lg flex items-center justify-center">
-              <Brain className="w-6 h-6 text-white" />
-            </div>
-            <div>
-              <h3 className="text-lg font-bold text-blue-900">OpenAI Configuration</h3>
-              <p className="text-sm text-blue-700">Language model services for intelligent analysis</p>
-            </div>
-          </div>
-          
-          <div className="space-y-4">
-            <div>
-              <label className="text-sm font-medium text-gray-700 block mb-2">
-                Base URL
-              </label>
-              <input
-                type="text"
-                placeholder="https://api.openai.com/v1"
-                value={apiKeySettings.openaiBaseUrl}
-                onChange={(e) => handleApiKeyChange('openaiBaseUrl', e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-            
-            <div>
-              <label className="text-sm font-medium text-gray-700 block mb-2">
-                API Key
-              </label>
-              <input
-                type="password"
-                placeholder="sk-..."
-                value={apiKeySettings.openaiApiKey}
-                onChange={(e) => handleApiKeyChange('openaiApiKey', e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-            
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-sm font-medium text-gray-700 block mb-2">
-                  Processing Model
-                </label>
-                <select
-                  value={apiKeySettings.processingModel}
-                  onChange={(e) => handleApiKeyChange('processingModel', e.target.value)}
-                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                >
-                  <option value="gpt-4o-mini">gpt-4o-mini</option>
-                  <option value="gpt-4o">gpt-4o</option>
-                  <option value="gpt-5-mini">gpt-5-mini</option>
-                  <option value="gpt-5">gpt-5</option>
-                </select>
-                <p className="text-xs text-gray-500 mt-1">Choose model for high-volume preprocessing</p>
-              </div>
-              
-              <div>
-                <label className="text-sm font-medium text-gray-700 block mb-2">
-                  Analysis Model
-                </label>
-                <select
-                  value={apiKeySettings.analysisModel}
-                  onChange={(e) => handleApiKeyChange('analysisModel', e.target.value)}
-                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                >
-                  <option value="gpt-4o-mini">gpt-4o-mini</option>
-                  <option value="gpt-4o">gpt-4o</option>
-                  <option value="gpt-5-mini">gpt-5-mini</option>
-                  <option value="gpt-5">gpt-5</option>
-                </select>
-                <p className="text-xs text-gray-500 mt-1">Choose model for detailed analysis tasks</p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* DashScope Configuration */}
-        <div className="bg-gradient-to-r from-orange-50 to-yellow-50 rounded-xl p-6 border border-orange-100">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-gradient-to-r from-orange-500 to-yellow-500 rounded-lg flex items-center justify-center">
-                <Settings className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <h3 className="text-lg font-bold text-orange-900">DashScope Configuration</h3>
-                <p className="text-sm text-orange-700">Alibaba Cloud API for video captioning</p>
-              </div>
-            </div>
-            <a
-              href="https://www.alibabacloud.com/help/en/model-studio/get-api-key?spm=a2c63.p38356.0.i1"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800 transition-colors"
-            >
-              <ExternalLink size={14} />
-              Get API Key Tutorial
-            </a>
-          </div>
-          
-          <div>
-            <label className="text-sm font-medium text-gray-700 block mb-2">
-              DashScope API Key
-            </label>
-            <input
-              type="password"
-              placeholder="sk-..."
-              value={apiKeySettings.dashscopeApiKey}
-              onChange={(e) => handleApiKeyChange('dashscopeApiKey', e.target.value)}
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
-            />
-          </div>
-          
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="text-sm font-medium text-gray-700 block mb-2">
-                Caption Model
-              </label>
-              <input
-                type="text"
-                value="qwen-vl-plus-latest"
-                readOnly
-                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md bg-gray-100 text-gray-600"
-              />
-              <p className="text-xs text-gray-500 mt-1">Fixed model for video captioning tasks</p>
-            </div>
-            
-            <div>
-              <label className="text-sm font-medium text-gray-700 block mb-2">
-                ASR Model
-              </label>
-              <input
-                type="text"
-                value="paraformer-realtime-v2"
-                readOnly
-                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md bg-gray-100 text-gray-600"
-              />
-              <p className="text-xs text-gray-500 mt-1">Fixed model for speech recognition tasks</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="flex justify-between items-center">
-        <Button 
-          onClick={() => goToStep(2)} 
-          className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-medium transition-all"
-        >
-          <ArrowLeft className="w-4 h-4 mr-2" />
-          Back
-        </Button>
-        
-        <Button 
-          onClick={() => goToStep(4)} 
-          disabled={!canProceedToStep4}
-          className="px-6 py-2 bg-gradient-to-r from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600 text-white rounded-lg font-medium transition-all disabled:opacity-50"
-        >
-          Complete Setup
-          <Sparkles className="w-4 h-4 ml-2" />
         </Button>
       </div>
     </div>
@@ -580,21 +284,11 @@ const InitializationWizard: React.FC<InitializationWizardProps> = ({ onComplete 
         </p>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 max-w-2xl mx-auto">
-        <div className="p-3 bg-blue-50 rounded-lg border border-blue-100">
-          <CheckCircle className="w-5 h-5 text-blue-600 mx-auto mb-1" />
-          <div className="text-sm font-medium text-blue-800">Directory</div>
-          <div className="text-xs text-blue-600">Storage Setup</div>
-        </div>
+      <div className="grid grid-cols-2 gap-3 max-w-md mx-auto">
         <div className="p-3 bg-green-50 rounded-lg border border-green-100">
           <CheckCircle className="w-5 h-5 text-green-600 mx-auto mb-1" />
           <div className="text-sm font-medium text-green-800">ImageBind</div>
           <div className="text-xs text-green-600">AI Model</div>
-        </div>
-        <div className="p-3 bg-orange-50 rounded-lg border border-orange-100">
-          <CheckCircle className="w-5 h-5 text-orange-600 mx-auto mb-1" />
-          <div className="text-sm font-medium text-orange-800">API Keys</div>
-          <div className="text-xs text-orange-600">Configuration</div>
         </div>
         <div className="p-3 bg-purple-50 rounded-lg border border-purple-100">
           <CheckCircle className="w-5 h-5 text-purple-600 mx-auto mb-1" />
@@ -686,10 +380,8 @@ const InitializationWizard: React.FC<InitializationWizardProps> = ({ onComplete 
 
           {/* Step content */}
           <div className="bg-white/80 backdrop-blur-sm rounded-xl shadow-lg border border-white/20 p-6">
-            {currentStep === 1 && renderStep1()}
-            {currentStep === 2 && renderStep2()}
-            {currentStep === 3 && renderApiKeySetup()}
-            {currentStep === 4 && renderCelebration()}
+            {currentStep === 1 && renderModelDownload()}
+            {currentStep === 2 && renderCelebration()}
           </div>
         </div>
       </div>
