@@ -1455,17 +1455,12 @@ def signal_handler(signum, frame):
     exit(0)
 
 
-def main():
-    """Main entry point for running the VideoRAG API server.
+# Module-level app instance for production WSGI deployment.
+# Usage:  gunicorn videorag_api:app
+app = create_app()
 
-    Supports CLI arguments for convenience during development::
 
-        python videorag_api.py --debug --port 8000
-
-    All system configuration (API keys, storage directory, model names)
-    is read from environment variables.  See :func:`get_env_config` for
-    the full list.
-    """
+if __name__ == '__main__':
     import argparse
 
     parser = argparse.ArgumentParser(description='VideoRAG API Server')
@@ -1530,7 +1525,7 @@ def main():
         log_to_file(f"🚀 Starting VideoRAG API on {host}:{SERVER_PORT} (debug={debug})")
         log_to_file(f"📝 Main process PID: {os.getpid()}")
         
-        app = create_app()
+        # Reuse the module-level app instance
         app.run(host=host, port=SERVER_PORT, debug=debug, threaded=True)
         
     except KeyboardInterrupt:
@@ -1541,13 +1536,4 @@ def main():
         cleanup_on_exit()
         exit(1)
     finally:
-        cleanup_on_exit()
-
-
-# Module-level app instance for production WSGI deployment.
-# Usage:  gunicorn videorag_api:app
-app = create_app()
-
-
-if __name__ == '__main__':
-    main() 
+        cleanup_on_exit() 
