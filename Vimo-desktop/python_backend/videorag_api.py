@@ -26,8 +26,32 @@ import warnings
 warnings.filterwarnings("ignore")
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
-from videorag._llm import LLMConfig, openai_embedding, gpt_complete, dashscope_caption_complete
+from videorag._llm import LLMConfig, openai_embedding, gpt_complete, caption_complete
 from videorag import VideoRAG, QueryParam
+
+# Default port configuration
+DEFAULT_PORT = 64451
+PORT_RANGE_START = 64451
+PORT_RANGE_END = 64470
+
+def get_env_config():
+    """Build configuration from environment variables with sensible defaults."""
+    store_dir = os.environ.get(
+        'VIDEORAG_STORE_DIR',
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
+    )
+    return {
+        'openai_api_key': os.environ.get('OPENAI_API_KEY', ''),
+        'openai_base_url': os.environ.get('OPENAI_BASE_URL', 'https://api.openai.com/v1'),
+        'caption_api_key': os.environ.get('CAPTION_API_KEY', ''),
+        'caption_base_url': os.environ.get('CAPTION_BASE_URL', 'https://dashscope.aliyuncs.com/compatible-mode/v1'),
+        'caption_model': os.environ.get('CAPTION_MODEL', 'qwen-vl-plus-latest'),
+        'asr_model': os.environ.get('ASR_MODEL', 'paraformer-realtime-v2'),
+        'processingModel': os.environ.get('PROCESSING_MODEL', 'gpt-4o-mini'),
+        'analysisModel': os.environ.get('ANALYSIS_MODEL', 'gpt-4o-mini'),
+        'base_storage_path': store_dir,
+        'image_bind_model_path': os.path.join(store_dir, 'imagebind_huge', 'imagebind_huge.pth'),
+    }
 
 # Log recording function
 def log_to_file(message, log_file="log.txt"):
@@ -659,7 +683,7 @@ def index_video_worker_process(chat_id, video_path_list, global_config, server_u
             cheap_model_name=global_config.get("processingModel"),
             cheap_model_max_token_size=32768,
             cheap_model_max_async=16,
-            caption_model_func_raw=dashscope_caption_complete,
+            caption_model_func_raw=caption_complete,
             caption_model_name=global_config.get("caption_model"),
             caption_model_max_async=3
         )
@@ -667,8 +691,8 @@ def index_video_worker_process(chat_id, video_path_list, global_config, server_u
         videorag_instance = VideoRAG(
             llm=videorag_llm_config,
             working_dir=session_working_dir,
-            ali_dashscope_api_key=global_config.get("ali_dashscope_api_key"),
-            ali_dashscope_base_url=global_config.get("ali_dashscope_base_url"),
+            caption_api_key=global_config.get("caption_api_key"),
+            caption_base_url=global_config.get("caption_base_url"),
             caption_model=global_config.get("caption_model"),
             asr_model=global_config.get("asr_model"),
             openai_api_key=global_config.get("openai_api_key"),
@@ -780,7 +804,7 @@ def query_worker_process(chat_id, query, global_config, server_url):
             cheap_model_name=global_config.get("processingModel"),
             cheap_model_max_token_size=32768,
             cheap_model_max_async=16,
-            caption_model_func_raw=dashscope_caption_complete,
+            caption_model_func_raw=caption_complete,
             caption_model_name=global_config.get("caption_model"),
             caption_model_max_async=3
         )
@@ -788,8 +812,8 @@ def query_worker_process(chat_id, query, global_config, server_url):
         videorag_instance = VideoRAG(
             llm=videorag_llm_config,
             working_dir=session_working_dir,
-            ali_dashscope_api_key=global_config.get("ali_dashscope_api_key"),
-            ali_dashscope_base_url=global_config.get("ali_dashscope_base_url"),
+            caption_api_key=global_config.get("caption_api_key"),
+            caption_base_url=global_config.get("caption_base_url"),
             caption_model=global_config.get("caption_model"),
             asr_model=global_config.get("asr_model"),
             openai_api_key=global_config.get("openai_api_key"),
@@ -832,12 +856,29 @@ def query_worker_process(chat_id, query, global_config, server_url):
 
 # Flask application factory function
 def create_app():
-    """Create Flask application instance"""
+    """Create Flask application instance.
+
+    The returned app can be used directly with a WSGI server such as
+    gunicorn (``gunicorn videorag_api:app``).  All system configuration
+    is read from environment variables via :func:`get_env_config`.
+    """
     app = Flask(__name__)
     CORS(app)
     
     # Register all routes
     register_routes(app)
+    
+    # Auto-initialize from environment variables
+    config = get_env_config()
+    os.makedirs(config['base_storage_path'], exist_ok=True)
+    get_process_manager().set_global_config(config)
+    
+    model_path = config.get('image_bind_model_path')
+    if model_path and os.path.exists(model_path):
+        get_imagebind_manager().initialize(model_path)
+        log_to_file(f"✅ ImageBind manager auto-initialized from env: {model_path}")
+    else:
+        log_to_file(f"⚠️ ImageBind model not found at {model_path}; initialize manually or set VIDEORAG_STORE_DIR")
     
     return app
 
@@ -848,6 +889,36 @@ def register_routes(app):
     def health_check():
         """Health check"""
         return jsonify({"status": "ok", "message": "VideoRAG API is running"})
+
+    @app.route('/api/config', methods=['GET'])
+    def get_config():
+        """Return current server configuration and available model options.
+
+        Model lists contain objects with ``name`` and ``default`` fields so
+        that the frontend can render selection drop-downs dynamically.
+        """
+        config = get_env_config()
+        return jsonify({
+            "success": True,
+            "base_storage_path": config["base_storage_path"],
+            "models": {
+                "processing_models": [
+                    {"name": config["processingModel"], "default": True},
+                ],
+                "analysis_models": [
+                    {"name": config["analysisModel"], "default": True},
+                ],
+                "caption_models": [
+                    {"name": config["caption_model"], "default": True},
+                ],
+                "asr_models": [
+                    {"name": config["asr_model"], "default": True},
+                ],
+                "embedding_models": [
+                    {"name": "text-embedding-3-small", "default": True},
+                ],
+            },
+        })
 
     @app.route('/api/video/duration', methods=['POST'])
     def get_video_duration():
@@ -878,12 +949,25 @@ def register_routes(app):
 
     @app.route('/api/initialize', methods=['POST'])
     def initialize_system():
-        """初始化系统配置但不加载ImageBind模型"""
+        """Initialize system configuration.
+
+        The base configuration is always read from environment variables.
+        The optional JSON body may override *model selection* fields only
+        (``processingModel``, ``analysisModel``, ``caption_model``,
+        ``asr_model``).  System-level fields such as API keys and storage
+        paths are controlled exclusively via environment variables.
+        """
         try:
-            config = request.json
+            config = get_env_config()
+
+            # Allow frontend to override model selections only
+            frontend = request.json or {}
+            for key in ('processingModel', 'analysisModel', 'caption_model', 'asr_model'):
+                if key in frontend and frontend[key]:
+                    config[key] = frontend[key]
+
             get_process_manager().set_global_config(config)
             
-            # 只初始化ImageBind管理器配置，不加载模型
             model_path = config.get("image_bind_model_path")
             if model_path:
                 get_imagebind_manager().initialize(model_path)
@@ -1370,7 +1454,24 @@ def signal_handler(signum, frame):
     cleanup_on_exit()
     exit(0)
 
+
+# Module-level app instance for production WSGI deployment.
+# Usage:  gunicorn videorag_api:app
+app = create_app()
+
+
 if __name__ == '__main__':
+    import argparse
+
+    parser = argparse.ArgumentParser(description='VideoRAG API Server')
+    parser.add_argument('--debug', action='store_true',
+                        help='Run Flask in debug mode')
+    parser.add_argument('--port', type=int, default=None,
+                        help='Port to run the server on (default: $VIDEORAG_PORT or 64451)')
+    parser.add_argument('--host', type=str, default=None,
+                        help='Host to bind the server to (default: $VIDEORAG_HOST or 0.0.0.0)')
+    args = parser.parse_args()
+
     # Must call freeze_support() at the beginning to support multiprocessing after packaging
     multiprocessing.freeze_support()
     
@@ -1390,7 +1491,6 @@ if __name__ == '__main__':
             win32api.SetConsoleCtrlHandler(win32_handler, True)
         except ImportError:
             log_to_file("⚠️ win32api not available, using basic signal handling")
-            pass
     
     # Set process name only in main process
     try:
@@ -1401,35 +1501,32 @@ if __name__ == '__main__':
         if hasattr(sys, 'argv'):
             sys.argv[0] = 'videorag-api-server'
     
-    # Port configuration - centralized in main
-    DEFAULT_PORT = 64451
-    PORT_RANGE_START = 64451
-    PORT_RANGE_END = 64470
-    
-    # Note: Do not initialize manager instance here directly, but use get_ function for delayed initialization
+    # Resolve host / port from CLI → env → defaults
+    host = args.host or os.environ.get('VIDEORAG_HOST', '0.0.0.0')
+    desired_port = args.port or int(os.environ.get('VIDEORAG_PORT', str(DEFAULT_PORT)))
+    debug = args.debug
     
     try:
         SERVER_PORT = None
 
-        if check_port_available(DEFAULT_PORT):
-            SERVER_PORT = DEFAULT_PORT
+        if check_port_available(desired_port):
+            SERVER_PORT = desired_port
         else:
             SERVER_PORT = find_available_port(PORT_RANGE_START, PORT_RANGE_END)
             if not SERVER_PORT:
                 SERVER_PORT = get_system_free_port()
 
-        # Set port as global variable for other functions
+        # Set port as global variable for worker processes
         globals()['SERVER_PORT'] = SERVER_PORT
 
         # Now it is safe to set multiprocessing start method
         multiprocessing.set_start_method('spawn')
         
-        log_to_file(f"🚀 Starting VideoRAG API with global ImageBind on port {SERVER_PORT}")
+        log_to_file(f"🚀 Starting VideoRAG API on {host}:{SERVER_PORT} (debug={debug})")
         log_to_file(f"📝 Main process PID: {os.getpid()}")
         
-        # Use factory function to create Flask app
-        app = create_app()
-        app.run(host='0.0.0.0', port=SERVER_PORT, debug=False, threaded=True)
+        # Reuse the module-level app instance
+        app.run(host=host, port=SERVER_PORT, debug=debug, threaded=True)
         
     except KeyboardInterrupt:
         log_to_file("🔔 Received keyboard interrupt")

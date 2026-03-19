@@ -8,236 +8,258 @@ import {
 } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import {
-  Key,
-  FolderOpen,
   CheckCircle,
   XCircle,
   RefreshCw,
   AlertCircle,
-  ExternalLink,
   Download,
   Settings as SettingsIcon,
   Cpu,
+  Sliders,
 } from 'lucide-react';
 
+interface ModelOption {
+  name: string;
+  default: boolean;
+}
+
+interface ModelOptions {
+  processing_models: ModelOption[];
+  analysis_models: ModelOption[];
+  caption_models: ModelOption[];
+  asr_models: ModelOption[];
+  embedding_models: ModelOption[];
+}
+
 interface SettingsState {
-  // OpenAI Configuration
-  openaiBaseUrl: string;
-  openaiApiKey: string;
-  processingModel: string; // processing model - for massive preprocessing
-  analysisModel: string;   // analysis model - for fine-grained analysis
-  
-  // DashScope Configuration
-  dashscopeApiKey: string;
-  captionModel: string;    // video description model
-  asrModel: string;        // speech recognition model
-  
-  // System Configuration
-  storeDirectory: string; // model storage directory
-  
-  // Initialization tracking
-  imagebindInstalled: boolean;
+  processingModel: string;
+  analysisModel: string;
+  captionModel: string;
+  asrModel: string;
 }
 
 const Settings = () => {
   const [settings, setSettings] = useState<SettingsState>({
-    openaiBaseUrl: '',
-    openaiApiKey: '',
-    processingModel: 'gpt-4o-mini',
-    analysisModel: 'gpt-4o-mini', 
-    dashscopeApiKey: '',
-    captionModel: 'qwen-vl-plus-latest',
-    asrModel: 'paraformer-realtime-v2',
-    storeDirectory: '',
-    imagebindInstalled: false,
+    processingModel: '',
+    analysisModel: '',
+    captionModel: '',
+    asrModel: '',
   });
 
-  const [apiConfigStatus, setApiConfigStatus] = useState<
+  const [modelOptions, setModelOptions] = useState<ModelOptions | null>(null);
+  const [modelOptionsLoading, setModelOptionsLoading] = useState(true);
+  const [modelOptionsError, setModelOptionsError] = useState<string | null>(null);
+
+  const [saveStatus, setSaveStatus] = useState<
     'idle' | 'saving' | 'saved' | 'error'
   >('idle');
 
+  // Model Status Section Component
+  const ModelStatusSection = () => {
+    const [modelStatus, setModelStatus] = useState<{
+      imagebind: boolean;
+      checking: boolean;
+    }>({
+      imagebind: false,
+      checking: false,
+    });
 
+    const [storeDirectory, setStoreDirectory] = useState('');
 
-// Model Status Section Component
-const ModelStatusSection = ({ storeDirectory }: { storeDirectory: string }) => {
-  const [modelStatus, setModelStatus] = useState<{
-    imagebind: boolean;
-    checking: boolean;
-  }>({
-    imagebind: false,
-    checking: false,
-  });
+    const checkModelStatus = async () => {
+      setModelStatus((prev) => ({ ...prev, checking: true }));
+      try {
+        // Get storage path from backend config
+        const configResult = await window.api.videorag.getConfig();
+        if (configResult.success && configResult.data?.base_storage_path) {
+          const dir = configResult.data.base_storage_path;
+          setStoreDirectory(dir);
+          const result = await window.api.checkModelFiles(dir);
+          setModelStatus({ imagebind: result.imagebind, checking: false });
+        } else {
+          setModelStatus({ imagebind: false, checking: false });
+        }
+      } catch (error) {
+        console.error('Failed to check model status:', error);
+        setModelStatus({ imagebind: false, checking: false });
+      }
+    };
 
-  const checkModelStatus = async () => {
-    if (!storeDirectory) {
-      setModelStatus(prev => ({ ...prev, imagebind: false }));
-      return;
-    }
+    useEffect(() => {
+      checkModelStatus();
+    }, []);
 
-    setModelStatus(prev => ({ ...prev, checking: true }));
-    
-    try {
-      const result = await window.api.checkModelFiles(storeDirectory);
-      setModelStatus({
-        imagebind: result.imagebind,
-        checking: false,
-      });
-    } catch (error) {
-      console.error('Failed to check model status:', error);
-      setModelStatus({ imagebind: false, checking: false });
-    }
-  };
+    const getStatusMessage = () => {
+      if (modelStatus.checking) return 'Checking model status...';
+      if (modelStatus.imagebind) return 'Ready to use';
+      return 'Model not found - run initialization wizard';
+    };
 
-  useEffect(() => {
-    checkModelStatus();
-  }, [storeDirectory]);
+    const getStatusColor = () => {
+      if (modelStatus.imagebind) return 'text-green-600';
+      return 'text-gray-500';
+    };
 
-  const getStatusMessage = () => {
-    if (!storeDirectory) return 'Please select a storage directory first';
-    if (modelStatus.checking) return 'Checking model status...';
-    if (modelStatus.imagebind) return 'Ready to use';
-    return 'Model not found - run initialization wizard';
-  };
-
-  const getStatusColor = () => {
-    if (!storeDirectory || !modelStatus.imagebind) return 'text-gray-500';
-    if (modelStatus.imagebind) return 'text-green-600';
-    return 'text-red-600';
-  };
-
-  return (
-    <div className="p-4 border rounded-lg">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-            <Cpu className="w-5 h-5 text-blue-600" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h4 className="font-medium">ImageBind Model</h4>
-              {modelStatus.checking ? (
-                <RefreshCw className="w-4 h-4 animate-spin text-blue-600" />
-              ) : modelStatus.imagebind ? (
-                <CheckCircle className="w-4 h-4 text-green-600" />
-              ) : (
-                <XCircle className="w-4 h-4 text-red-600" />
+    return (
+      <div className="p-4 border rounded-lg">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+              <Cpu className="w-5 h-5 text-blue-600" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h4 className="font-medium">ImageBind Model</h4>
+                {modelStatus.checking ? (
+                  <RefreshCw className="w-4 h-4 animate-spin text-blue-600" />
+                ) : modelStatus.imagebind ? (
+                  <CheckCircle className="w-4 h-4 text-green-600" />
+                ) : (
+                  <XCircle className="w-4 h-4 text-red-600" />
+                )}
+              </div>
+              <p className="text-xs text-gray-500">~4.5GB • Image Understanding</p>
+              <p className={`text-sm ${getStatusColor()}`}>{getStatusMessage()}</p>
+              {storeDirectory && (
+                <p className="text-xs text-gray-400 mt-1">
+                  Storage: {storeDirectory}
+                </p>
               )}
             </div>
-            <p className="text-xs text-gray-500">~4.5GB • Image Understanding</p>
-            <p className={`text-sm ${getStatusColor()}`}>
-              {getStatusMessage()}
-            </p>
           </div>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={checkModelStatus}
+            disabled={modelStatus.checking}
+          >
+            {modelStatus.checking ? (
+              <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+            ) : (
+              <RefreshCw className="w-4 h-4 mr-2" />
+            )}
+            Check Status
+          </Button>
         </div>
-        
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={checkModelStatus}
-          disabled={modelStatus.checking || !storeDirectory}
-        >
-          {modelStatus.checking ? (
-            <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-          ) : (
-            <RefreshCw className="w-4 h-4 mr-2" />
-          )}
-          Check Status
-        </Button>
       </div>
-    </div>
-  );
-};
+    );
+  };
 
+  // Fetch model options from API
+  useEffect(() => {
+    fetchModelOptions();
+  }, []);
 
-
-  // Load settings
+  // Load saved settings
   useEffect(() => {
     loadSettings();
   }, []);
 
+  const fetchModelOptions = async () => {
+    setModelOptionsLoading(true);
+    setModelOptionsError(null);
+    try {
+      const result = await window.api.videorag.getConfig();
+      if (result.success && result.data?.models) {
+        setModelOptions(result.data.models);
+      } else {
+        setModelOptionsError('Failed to load model options from API');
+      }
+    } catch (error) {
+      console.error('Failed to fetch model options:', error);
+      setModelOptionsError('Cannot connect to backend API');
+    } finally {
+      setModelOptionsLoading(false);
+    }
+  };
+
   const loadSettings = async () => {
     try {
-      // Load settings from configuration file
       const result = await window.api.loadSettings();
       if (result.success && result.settings) {
-        // Merge saved settings and default settings
-        setSettings(prevSettings => ({
-          ...prevSettings,
-          ...result.settings,
-        }));
+        setSettings((prev) => ({ ...prev, ...result.settings }));
       }
     } catch (error) {
       console.error('Failed to load settings:', error);
     }
   };
 
-  const handleOpenaiChange = (field: string, value: string) => {
+  // Apply defaults from API when model options load and settings are empty
+  useEffect(() => {
+    if (!modelOptions) return;
+    setSettings((prev) => {
+      const updated = { ...prev };
+      if (!updated.processingModel) {
+        const def = modelOptions.processing_models.find((m) => m.default);
+        if (def) updated.processingModel = def.name;
+      }
+      if (!updated.analysisModel) {
+        const def = modelOptions.analysis_models.find((m) => m.default);
+        if (def) updated.analysisModel = def.name;
+      }
+      if (!updated.captionModel) {
+        const def = modelOptions.caption_models.find((m) => m.default);
+        if (def) updated.captionModel = def.name;
+      }
+      if (!updated.asrModel) {
+        const def = modelOptions.asr_models.find((m) => m.default);
+        if (def) updated.asrModel = def.name;
+      }
+      return updated;
+    });
+  }, [modelOptions]);
+
+  const handleModelChange = (field: keyof SettingsState, value: string) => {
     setSettings((prev) => ({ ...prev, [field]: value }));
   };
 
-  const handleDashscopeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setSettings((prev) => ({ ...prev, dashscopeApiKey: e.target.value }));
-  };
-
-  const handleApiConfigSave = async () => {
-    setApiConfigStatus('saving');
+  const handleSave = async () => {
+    setSaveStatus('saving');
     try {
-      // Step 1: Save settings to file
       const saveResult = await window.api.saveSettings(settings);
-      
       if (!saveResult.success) {
-        setApiConfigStatus('error');
-        setTimeout(() => setApiConfigStatus('idle'), 2000);
+        setSaveStatus('error');
+        setTimeout(() => setSaveStatus('idle'), 2000);
         return;
       }
-      
-      // Step 2: Trigger VideoRAG configuration initialization
+
+      // Re-initialize backend with new model selections
       try {
         const initResult = await window.api.videorag.reinitializeConfig();
-        
         if (initResult.success) {
-          setApiConfigStatus('saved');
-          console.log('✅ VideoRAG configuration initialized successfully');
+          console.log('✅ Configuration updated successfully');
         } else {
-          console.warn('⚠️ Settings saved but VideoRAG initialization failed:', initResult.error);
-          setApiConfigStatus('saved'); // Still show success since settings were saved
+          console.warn('⚠️ Settings saved but backend reinit failed:', initResult.error);
         }
       } catch (initError) {
-        console.warn('⚠️ Settings saved but VideoRAG initialization failed:', initError);
-        setApiConfigStatus('saved'); // Still show success since settings were saved
+        console.warn('⚠️ Settings saved but backend reinit failed:', initError);
       }
-      
-      // Trigger configuration update event, notify sidebar to reload sessions (if storage directory has changed)
-      if (settings.storeDirectory) {
-        const event = new CustomEvent('storage-config-updated', {
-          detail: { storeDirectory: settings.storeDirectory }
-        });
-        window.dispatchEvent(event);
-      }
-      
-      setTimeout(() => setApiConfigStatus('idle'), 2000);
+
+      setSaveStatus('saved');
+      setTimeout(() => setSaveStatus('idle'), 2000);
     } catch (error) {
-      console.error('Failed to save API configuration:', error);
-      setApiConfigStatus('error');
-      setTimeout(() => setApiConfigStatus('idle'), 2000);
+      console.error('Failed to save settings:', error);
+      setSaveStatus('error');
+      setTimeout(() => setSaveStatus('idle'), 2000);
     }
   };
 
-  const getApiConfigButtonText = () => {
-    switch (apiConfigStatus) {
+  const getSaveButtonText = () => {
+    switch (saveStatus) {
       case 'saving':
         return 'Saving...';
       case 'saved':
         return 'Saved!';
       case 'error':
-        return 'Save API Configuration';
+        return 'Save Failed';
       default:
-        return 'Save API Configuration';
+        return 'Save Model Selection';
     }
   };
 
-  const getApiConfigButtonIcon = () => {
-    switch (apiConfigStatus) {
+  const getSaveButtonIcon = () => {
+    switch (saveStatus) {
       case 'saving':
         return <RefreshCw className="animate-spin" size={16} />;
       case 'saved':
@@ -245,31 +267,68 @@ const ModelStatusSection = ({ storeDirectory }: { storeDirectory: string }) => {
       case 'error':
         return <XCircle className="text-red-600" size={16} />;
       default:
-        return <Key size={16} />;
+        return <Sliders size={16} />;
     }
   };
 
   // Restart initialization wizard
   const restartInitializationWizard = async () => {
     const confirmed = window.confirm(
-      'This will restart the application and reset all initialization settings. Are you sure you want to continue?'
+      'This will restart the application and reset all initialization settings. Are you sure you want to continue?',
     );
-    
+
     if (!confirmed) return;
 
     try {
-      // 1. Clear configuration files
       console.log('Clearing configuration files...');
       await window.api.app.clearConfig();
-      
-      // 2. Restart application
       console.log('Restarting application...');
       await window.api.app.restart();
-      
     } catch (error) {
       console.error('Failed to restart initialization wizard:', error);
       alert('Failed to restart setup wizard. Please try again.');
     }
+  };
+
+  const renderModelSelect = (
+    label: string,
+    description: string,
+    field: keyof SettingsState,
+    options: ModelOption[] | undefined,
+  ) => {
+    if (!options || options.length === 0) {
+      return (
+        <div>
+          <label className="text-sm font-medium block mb-2">{label}</label>
+          <input
+            type="text"
+            value={settings[field] || '—'}
+            readOnly
+            className="w-full px-3 py-2 text-sm border rounded-md bg-gray-100 text-gray-600"
+          />
+          <p className="text-xs text-gray-500 mt-1">{description}</p>
+        </div>
+      );
+    }
+
+    return (
+      <div>
+        <label className="text-sm font-medium block mb-2">{label}</label>
+        <select
+          value={settings[field]}
+          onChange={(e) => handleModelChange(field, e.target.value)}
+          className="w-full px-3 py-2 text-sm border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+        >
+          {options.map((opt) => (
+            <option key={opt.name} value={opt.name}>
+              {opt.name}
+              {opt.default ? ' (default)' : ''}
+            </option>
+          ))}
+        </select>
+        <p className="text-xs text-gray-500 mt-1">{description}</p>
+      </div>
+    );
   };
 
   return (
@@ -287,166 +346,107 @@ const ModelStatusSection = ({ storeDirectory }: { storeDirectory: string }) => {
           <div className="space-y-2">
             <h1 className="text-3xl font-bold tracking-tight">Settings</h1>
             <p className="text-muted-foreground">
-              Configure your Vimo application preferences and environment.
+              Configure your Vimo application preferences.
             </p>
           </div>
 
-          {/* API Configuration */}
+          {/* Model Selection */}
           <Card>
             <CardHeader>
               <div className="flex items-center gap-3">
                 <div className="flex size-10 items-center justify-center rounded-lg bg-blue-100 text-blue-600">
-                  <Key size={20} />
+                  <Sliders size={20} />
                 </div>
                 <div>
-                  <CardTitle>API Configuration</CardTitle>
+                  <CardTitle>Model Selection</CardTitle>
                   <CardDescription>
-                    Configure your API keys for external services
+                    Choose AI models for different processing tasks. Options are provided by the backend API.
                   </CardDescription>
                 </div>
               </div>
             </CardHeader>
             <CardContent className="space-y-6">
-              {/* OpenAI Configuration */}
-              <div className="space-y-4 p-4 border rounded-lg bg-gray-50">
-                <h3 className="text-lg font-semibold text-gray-800">OpenAI Configuration</h3>
-                <p className="text-sm text-gray-600">Configure OpenAI API for language model services</p>
-                
-                <div className="space-y-4">
-                  <div>
-                    <label className="text-sm font-medium block mb-2">
-                      Base URL
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="https://api.openai.com/v1"
-                      value={settings.openaiBaseUrl}
-                      onChange={(e) => handleOpenaiChange('openaiBaseUrl', e.target.value)}
-                      className="w-full px-3 py-2 text-sm border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                  
-                  <div>
-                    <label className="text-sm font-medium block mb-2">
-                      API Key
-                    </label>
-                    <input
-                      type="password"
-                      placeholder="sk-..."
-                      value={settings.openaiApiKey}
-                      onChange={(e) => handleOpenaiChange('openaiApiKey', e.target.value)}
-                      className="w-full px-3 py-2 text-sm border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                  
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="text-sm font-medium block mb-2">
-                        Processing Model
-                      </label>
-                      <input
-                        type="text"
-                        value={settings.processingModel}
-                        readOnly
-                        className="w-full px-3 py-2 text-sm border rounded-md bg-gray-100 text-gray-600"
-                      />
-                      <p className="text-xs text-gray-500 mt-1">Current model for high-volume preprocessing tasks</p>
-                    </div>
-                    
-                    <div>
-                      <label className="text-sm font-medium block mb-2">
-                        Analysis Model
-                      </label>
-                      <input
-                        type="text"
-                        value={settings.analysisModel}
-                        readOnly
-                        className="w-full px-3 py-2 text-sm border rounded-md bg-gray-100 text-gray-600"
-                      />
-                      <p className="text-xs text-gray-500 mt-1">Current model for detailed analysis tasks</p>
-                    </div>
+              {modelOptionsLoading ? (
+                <div className="flex items-center gap-2 text-gray-500">
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  <span>Loading model options from API...</span>
+                </div>
+              ) : modelOptionsError ? (
+                <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-lg">
+                  <AlertCircle className="text-red-600 mt-0.5" size={16} />
+                  <div className="text-sm">
+                    <p className="font-medium text-red-800">{modelOptionsError}</p>
+                    <p className="text-red-700 mt-1">
+                      Make sure the backend API is running and try again.
+                    </p>
+                    <Button variant="outline" size="sm" className="mt-2" onClick={fetchModelOptions}>
+                      <RefreshCw className="w-3 h-3 mr-1" /> Retry
+                    </Button>
                   </div>
                 </div>
-              </div>
+              ) : (
+                <>
+                  {/* Processing Models */}
+                  <div className="space-y-4 p-4 border rounded-lg bg-gray-50">
+                    <h3 className="text-lg font-semibold text-gray-800">
+                      Text Processing Models
+                    </h3>
+                    <div className="grid grid-cols-2 gap-4">
+                      {renderModelSelect(
+                        'Processing Model',
+                        'Used for high-volume preprocessing tasks',
+                        'processingModel',
+                        modelOptions?.processing_models,
+                      )}
+                      {renderModelSelect(
+                        'Analysis Model',
+                        'Used for detailed analysis tasks',
+                        'analysisModel',
+                        modelOptions?.analysis_models,
+                      )}
+                    </div>
+                  </div>
 
-              {/* DashScope Configuration */}
-              <div className="space-y-4 p-4 border rounded-lg bg-orange-50">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="text-lg font-semibold text-gray-800">DashScope Configuration</h3>
-                    <p className="text-sm text-gray-600">Configure Alibaba Cloud DashScope API for video captioning</p>
-                  </div>
-                  <a
-                    href="https://www.alibabacloud.com/help/en/model-studio/get-api-key?spm=a2c63.p38356.0.i1"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800"
-                  >
-                    <ExternalLink size={14} />
-                    Get API Key Tutorial
-                  </a>
-                </div>
-                
-                <div className="space-y-4">
-                  <div>
-                    <label className="text-sm font-medium block mb-2">
-                      DashScope API Key
-                    </label>
-                    <input
-                      type="password"
-                      placeholder="sk-..."
-                      value={settings.dashscopeApiKey}
-                      onChange={handleDashscopeChange}
-                      className="w-full px-3 py-2 text-sm border rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
-                    />
-                  </div>
-                  
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="text-sm font-medium block mb-2">
-                        Caption Model
-                      </label>
-                      <input
-                        type="text"
-                        value="qwen-vl-plus-latest"
-                        readOnly
-                        className="w-full px-3 py-2 text-sm border rounded-md bg-gray-100 text-gray-600"
-                      />
-                      <p className="text-xs text-gray-500 mt-1">Fixed model for video captioning tasks</p>
-                    </div>
-                    
-                    <div>
-                      <label className="text-sm font-medium block mb-2">
-                        ASR Model
-                      </label>
-                      <input
-                        type="text"
-                        value="paraformer-realtime-v2"
-                        readOnly
-                        className="w-full px-3 py-2 text-sm border rounded-md bg-gray-100 text-gray-600"
-                      />
-                      <p className="text-xs text-gray-500 mt-1">Fixed model for speech recognition tasks</p>
+                  {/* Caption / ASR Models */}
+                  <div className="space-y-4 p-4 border rounded-lg bg-gray-50">
+                    <h3 className="text-lg font-semibold text-gray-800">
+                      Video Processing Models
+                    </h3>
+                    <div className="grid grid-cols-2 gap-4">
+                      {renderModelSelect(
+                        'Caption Model',
+                        'Used for video captioning tasks',
+                        'captionModel',
+                        modelOptions?.caption_models,
+                      )}
+                      {renderModelSelect(
+                        'ASR Model',
+                        'Used for speech recognition tasks',
+                        'asrModel',
+                        modelOptions?.asr_models,
+                      )}
                     </div>
                   </div>
-                </div>
-              </div>
-              
-              <p className="text-xs text-muted-foreground">
-                All API keys are stored locally and never shared with third parties
-              </p>
-              
-              {/* Save API Configuration Button */}
-              <div className="flex justify-end">
-                <Button
-                  variant="outline"
-                  onClick={handleApiConfigSave}
-                  disabled={apiConfigStatus === 'saving'}
-                  className="px-6"
-                >
-                  {getApiConfigButtonIcon()}
-                  <span className="ml-2">{getApiConfigButtonText()}</span>
-                </Button>
-              </div>
+
+                  <p className="text-xs text-muted-foreground">
+                    System configuration (API keys, base URLs, storage paths) is managed via backend
+                    environment variables.
+                  </p>
+
+                  {/* Save Button */}
+                  <div className="flex justify-end">
+                    <Button
+                      variant="outline"
+                      onClick={handleSave}
+                      disabled={saveStatus === 'saving'}
+                      className="px-6"
+                    >
+                      {getSaveButtonIcon()}
+                      <span className="ml-2">{getSaveButtonText()}</span>
+                    </Button>
+                  </div>
+                </>
+              )}
             </CardContent>
           </Card>
 
@@ -459,48 +459,12 @@ const ModelStatusSection = ({ storeDirectory }: { storeDirectory: string }) => {
                 </div>
                 <div>
                   <CardTitle>AI Model Status</CardTitle>
-                  <CardDescription>
-                    Check the status of ImageBind model
-                  </CardDescription>
+                  <CardDescription>Check the status of ImageBind model</CardDescription>
                 </div>
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              <ModelStatusSection storeDirectory={settings.storeDirectory} />
-            </CardContent>
-          </Card>
-
-          {/* File System Configuration */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center gap-3">
-                <div className="flex size-10 items-center justify-center rounded-lg bg-purple-100 text-purple-600">
-                  <FolderOpen size={20} />
-                </div>
-                <div>
-                  <CardTitle>File System</CardTitle>
-                  <CardDescription>
-                    Configure file storage and temporary directories
-                  </CardDescription>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <label className="text-sm font-medium block mb-2">
-                  Data Storage Directory
-                </label>
-                <input
-                  type="text"
-                  placeholder="Select a directory..."
-                  value={settings.storeDirectory}
-                  readOnly
-                  className="w-full px-3 py-2 text-sm border rounded-md bg-gray-50 focus:outline-none"
-                />
-                <p className="text-xs text-muted-foreground mt-1">
-                  Directory for storing AI models (ImageBind) and Vimo cache data
-                </p>
-              </div>
+              <ModelStatusSection />
             </CardContent>
           </Card>
 
@@ -514,7 +478,8 @@ const ModelStatusSection = ({ storeDirectory }: { storeDirectory: string }) => {
                 <div>
                   <CardTitle>Setup Wizard</CardTitle>
                   <CardDescription>
-                    Re-run the initial configuration wizard to set up directories, download models, and check environment
+                    Re-run the initial configuration wizard to download models and check
+                    environment
                   </CardDescription>
                 </div>
               </div>
@@ -523,21 +488,15 @@ const ModelStatusSection = ({ storeDirectory }: { storeDirectory: string }) => {
               <div className="flex items-start gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
                 <AlertCircle className="text-blue-600 mt-0.5" size={16} />
                 <div className="text-sm">
-                  <p className="font-medium text-blue-800">
-                    Setup Wizard
-                  </p>
+                  <p className="font-medium text-blue-800">Setup Wizard</p>
                   <p className="text-blue-700 mt-1">
-                    Guide you through directory setup, AI model downloads, and environment configuration.
+                    Guide you through AI model downloads and environment configuration.
                   </p>
                 </div>
               </div>
-              
+
               <div className="flex justify-start">
-                <Button
-                  onClick={restartInitializationWizard}
-                  variant="outline"
-                  className="px-6 py-2"
-                >
+                <Button onClick={restartInitializationWizard} variant="outline" className="px-6 py-2">
                   <SettingsIcon className="w-4 h-4 mr-2" />
                   Re-run Setup Wizard
                 </Button>

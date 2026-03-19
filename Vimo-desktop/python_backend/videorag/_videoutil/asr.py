@@ -46,7 +46,7 @@ async def speech_to_text_online(video_name, working_dir, segment_index2name, aud
     Online ASR using Alibaba Cloud DashScope API with async concurrent processing
     """
     # Get API key and sample rate from global config
-    api_key = global_config.get('ali_dashscope_api_key')
+    api_key = global_config.get('caption_api_key')
     sample_rate = global_config.get('audio_sample_rate', 16000)
     
     # Set the API key
@@ -111,10 +111,10 @@ async def speech_to_text_async(video_name, working_dir, segment_index2name, audi
         audio_output_format: Audio file format
         global_config: Global configuration dictionary containing API keys and settings
     """
-    api_key = global_config.get('ali_dashscope_api_key')
+    api_key = global_config.get('caption_api_key')
     
     if not api_key:
-        raise ValueError("ali_dashscope_api_key must be provided in global_config for online ASR")
+        raise ValueError("caption_api_key must be provided in global_config for online ASR")
     
     return await speech_to_text_online(
         video_name, working_dir, segment_index2name, audio_output_format, global_config
