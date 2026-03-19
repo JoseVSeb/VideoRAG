@@ -6,13 +6,20 @@ import fs from 'fs'
 
 // API base URL — configurable via VIDEORAG_API_URL env var so the frontend
 // does not assume the backend is always on localhost.
-let VIDEORAG_API_BASE_URL = process.env.VIDEORAG_API_URL || 'http://localhost:64451/api'
+// Evaluated lazily so that a .env file loaded at startup is respected.
+let _apiBaseURL: string | null = null
+
+function getAPIBaseURL(): string {
+  if (_apiBaseURL !== null) return _apiBaseURL
+  const host = process.env.VIDEORAG_API_HOST || 'localhost'
+  return process.env.VIDEORAG_API_URL || `http://${host}:64451/api`
+}
 
 // Update API base URL (used after port scanning)
 function updateAPIBaseURL(port: number) {
   const host = process.env.VIDEORAG_API_HOST || 'localhost'
-  VIDEORAG_API_BASE_URL = `http://${host}:${port}/api`
-  console.log(`📡 Updated API base URL to: ${VIDEORAG_API_BASE_URL}`)
+  _apiBaseURL = `http://${host}:${port}/api`
+  console.log(`📡 Updated API base URL to: ${_apiBaseURL}`)
 }
 
 // Python backend process management
@@ -21,6 +28,9 @@ let pythonProcess: ChildProcess | null = null
 // Port configuration
 const PORT_RANGE_START = 64451
 const PORT_RANGE_END = 64470
+
+// Maximum seconds to poll for a backend download before giving up (~1 hour)
+const DOWNLOAD_POLL_MAX_SECONDS = 60 * 60
 
 // Efficiently scan port range to find VideoRAG service
 async function scanForVideoRAGService(startPort?: number, endPort?: number): Promise<number | null> {
@@ -215,7 +225,7 @@ async function callVideoRAGAPI(endpoint: string, method: 'GET' | 'POST' | 'DELET
     console.log(`📡 API call: ${method} ${endpoint} (timeout: ${timeout}ms)`)
     const response = await axios({
       method,
-      url: `${VIDEORAG_API_BASE_URL}${endpoint}`,
+      url: `${getAPIBaseURL()}${endpoint}`,
       data,
       timeout
     })
@@ -586,6 +596,63 @@ export function setupVideoRAGHandlers() {
       }
       
       return { success: true }
+    } catch (error: any) {
+      return { success: false, error: error.message }
+    }
+  })
+
+  // Check whether the ImageBind model file exists (proxied to backend)
+  ipcMain.handle('check-model-files', async () => {
+    try {
+      const result = await callVideoRAGAPI('/imagebind/model-status')
+      return { imagebind: result.exists || false }
+    } catch (error: any) {
+      console.error('check-model-files error:', error.message)
+      return { imagebind: false }
+    }
+  })
+
+  // Download ImageBind model via the backend (with progress relay)
+  ipcMain.handle('download-imagebind', async (event) => {
+    try {
+      // Ask backend to start the download
+      const startResult = await callVideoRAGAPI('/imagebind/download', 'POST')
+
+      if (!startResult.success) {
+        return { success: false, error: startResult.error || 'Failed to start download' }
+      }
+
+      // Model already existed — nothing more to do
+      if (startResult.already_exists) {
+        return { success: true }
+      }
+
+      // Poll for progress until the download completes or fails
+      for (let i = 0; i < DOWNLOAD_POLL_MAX_SECONDS; i++) {
+        await new Promise((r) => setTimeout(r, 1000))
+
+        const progressResult = await callVideoRAGAPI('/imagebind/download-progress')
+        const status: string = progressResult.status
+
+        if (status === 'downloading') {
+          event.sender.send('download-progress', {
+            type: 'imagebind',
+            progress: progressResult.progress || 0,
+            downloaded: progressResult.downloaded || 0,
+            total: progressResult.total || 0,
+          })
+        } else if (status === 'completed') {
+          return { success: true }
+        } else if (status === 'error') {
+          event.sender.send('download-error', {
+            type: 'imagebind',
+            error: progressResult.error || 'Unknown error',
+          })
+          return { success: false, error: progressResult.error || 'Download failed' }
+        }
+      }
+
+      return { success: false, error: 'Download timed out' }
     } catch (error: any) {
       return { success: false, error: error.message }
     }

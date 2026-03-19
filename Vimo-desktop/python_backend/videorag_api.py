@@ -3,6 +3,20 @@ import os
 import certifi
 os.environ['SSL_CERT_FILE'] = certifi.where()
 os.environ['REQUESTS_CA_BUNDLE'] = certifi.where()
+
+# Load .env file before reading any environment variables.
+# python-dotenv is an optional dependency; if it is not installed the app
+# falls back to the shell environment (existing behaviour).
+try:
+    from dotenv import load_dotenv as _load_dotenv
+    import pathlib as _pathlib
+    # Look for .env next to this script first, then in cwd.
+    _env_file = _pathlib.Path(__file__).parent / '.env'
+    _load_dotenv(dotenv_path=_env_file, override=False)
+    _load_dotenv(override=False)  # also try cwd as a fallback
+except ImportError:
+    pass  # python-dotenv not installed — env vars must be provided by the shell
+
 import time
 import threading
 import multiprocessing
@@ -33,6 +47,16 @@ from videorag import VideoRAG, QueryParam
 DEFAULT_PORT = 64451
 PORT_RANGE_START = 64451
 PORT_RANGE_END = 64470
+
+# Global ImageBind download state (protected by _download_lock)
+_download_lock = threading.Lock()
+_imagebind_download_state: dict = {
+    'status': 'idle',   # idle | downloading | completed | error
+    'progress': 0,
+    'downloaded': 0,
+    'total': 0,
+    'error': None,
+}
 
 def get_env_config():
     """Build configuration from environment variables with sensible defaults."""
@@ -1402,6 +1426,121 @@ def register_routes(app):
                 "success": False, 
                 "error": f"Error getting ImageBind status: {str(e)}"
             }), 500
+
+    @app.route('/api/imagebind/model-status', methods=['GET'])
+    def imagebind_model_status():
+        """Check whether the ImageBind model file exists on disk."""
+        try:
+            config = get_env_config()
+            model_path = config['image_bind_model_path']
+            return jsonify({
+                "success": True,
+                "exists": os.path.exists(model_path),
+                "path": model_path,
+            })
+        except Exception as e:
+            return jsonify({
+                "success": False,
+                "error": f"Error checking model status: {str(e)}"
+            }), 500
+
+    @app.route('/api/imagebind/download', methods=['POST'])
+    def download_imagebind_model():
+        """Start an asynchronous download of the ImageBind model weights."""
+        global _imagebind_download_state
+
+        config = get_env_config()
+        model_path = config['image_bind_model_path']
+
+        with _download_lock:
+            # Already on disk — nothing to do.
+            if os.path.exists(model_path):
+                return jsonify({"success": True, "already_exists": True,
+                                "message": "Model already exists"})
+
+            # Download already in progress.
+            if _imagebind_download_state['status'] == 'downloading':
+                return jsonify({"success": True, "already_exists": False,
+                                "message": "Download already in progress"})
+
+            # Mark as downloading *before* releasing the lock so concurrent
+            # requests see the updated status immediately.
+            _imagebind_download_state = {
+                'status': 'downloading',
+                'progress': 0,
+                'downloaded': 0,
+                'total': 0,
+                'error': None,
+            }
+
+        thread = threading.Thread(
+            target=_download_imagebind_thread,
+            args=(model_path,),
+            daemon=True,
+        )
+        thread.start()
+
+        return jsonify({"success": True, "already_exists": False,
+                        "message": "Download started"})
+
+    @app.route('/api/imagebind/download-progress', methods=['GET'])
+    def imagebind_download_progress():
+        """Return the current state of the ImageBind download."""
+        with _download_lock:
+            snapshot = dict(_imagebind_download_state)
+        return jsonify({"success": True, **snapshot})
+
+def _download_imagebind_thread(model_path: str):
+    """Background thread that downloads the ImageBind model weights."""
+    global _imagebind_download_state
+
+    url = 'https://dl.fbaipublicfiles.com/imagebind/imagebind_huge.pth'
+    model_dir = os.path.dirname(model_path)
+
+    try:
+        os.makedirs(model_dir, exist_ok=True)
+
+        log_to_file(f"⬇️  Starting ImageBind download from {url}")
+        response = requests.get(url, stream=True, timeout=300)
+        response.raise_for_status()
+
+        total_size = int(response.headers.get('content-length', 0))
+        with _download_lock:
+            _imagebind_download_state['total'] = total_size
+
+        downloaded = 0
+        with open(model_path, 'wb') as f:
+            for chunk in response.iter_content(chunk_size=65536):
+                if chunk:
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    with _download_lock:
+                        _imagebind_download_state['downloaded'] = downloaded
+                        if total_size > 0:
+                            _imagebind_download_state['progress'] = round(
+                                (downloaded / total_size) * 100
+                            )
+
+        with _download_lock:
+            _imagebind_download_state.update({
+                'status': 'completed',
+                'progress': 100,
+            })
+        log_to_file("✅ ImageBind download completed successfully")
+
+    except Exception as e:
+        log_to_file(f"❌ ImageBind download failed: {str(e)}")
+        with _download_lock:
+            _imagebind_download_state.update({
+                'status': 'error',
+                'error': str(e),
+            })
+        # Remove partial download
+        try:
+            if os.path.exists(model_path):
+                os.remove(model_path)
+        except Exception:
+            pass
 
 def check_port_available(port):
     """Check if port is available"""
