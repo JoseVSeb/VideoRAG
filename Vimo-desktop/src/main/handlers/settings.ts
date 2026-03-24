@@ -71,6 +71,7 @@ export function registerSettingsHandlers(): void {
         openaiApiKey: '',
         processingModel: 'gpt-4o-mini',
         analysisModel: 'gpt-4o-mini',
+        embeddingModel: 'text-embedding-3-small',
         dashscopeBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
         dashscopeApiKey: '',
         captionModel: 'qwen-vl-plus-latest',

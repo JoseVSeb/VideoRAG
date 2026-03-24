@@ -265,6 +265,7 @@ async function initializeVideoRAGConfig(): Promise<void> {
       openai_base_url: settings.openaiBaseUrl || 'https://api.openai.com/v1',
       analysisModel: settings.analysisModel || 'gpt-4o-mini',
       processingModel: settings.processingModel || 'gpt-4o-mini',
+      embeddingModel: settings.embeddingModel || 'text-embedding-3-small',
       caption_model: settings.captionModel || 'qwen-vl-plus-latest',
       asr_model: settings.asrModel || 'large-v3'
     }
@@ -278,6 +279,7 @@ async function initializeVideoRAGConfig(): Promise<void> {
       base_storage_path: videoragConfig.base_storage_path ? '✅ SET' : '❌ MISSING',
       analysisModel: '✅ SET (default allowed)',
       processingModel: '✅ SET (default allowed)',
+      embeddingModel: '✅ SET (default allowed)',
       caption_model: '✅ SET (default allowed)',
       asr_model: '✅ SET (default allowed)'
     })

@@ -26,6 +26,7 @@ interface SettingsState {
   openaiApiKey: string;
   processingModel: string; // processing model - for massive preprocessing
   analysisModel: string;   // analysis model - for fine-grained analysis
+  embeddingModel: string;  // embedding model - for text embeddings
   
   // DashScope / Caption Provider Configuration
   dashscopeBaseUrl: string;
@@ -45,7 +46,8 @@ const Settings = () => {
     openaiBaseUrl: '',
     openaiApiKey: '',
     processingModel: 'gpt-4o-mini',
-    analysisModel: 'gpt-4o-mini', 
+    analysisModel: 'gpt-4o-mini',
+    embeddingModel: 'text-embedding-3-small',
     dashscopeBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     dashscopeApiKey: '',
     captionModel: 'qwen-vl-plus-latest',
@@ -369,6 +371,20 @@ const ModelStatusSection = ({ storeDirectory }: { storeDirectory: string }) => {
                       />
                       <p className="text-xs text-gray-500 mt-1">Model for detailed analysis tasks</p>
                     </div>
+                  </div>
+                  
+                  <div>
+                    <label className="text-sm font-medium block mb-2">
+                      Embedding Model
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="text-embedding-3-small"
+                      value={settings.embeddingModel}
+                      onChange={(e) => handleOpenaiChange('embeddingModel', e.target.value)}
+                      className="w-full px-3 py-2 text-sm border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Model for text embeddings used in search and retrieval</p>
                   </div>
                 </div>
               </div>
