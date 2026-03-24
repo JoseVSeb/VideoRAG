@@ -49,7 +49,7 @@ const Settings = () => {
     dashscopeBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     dashscopeApiKey: '',
     captionModel: 'qwen-vl-plus-latest',
-    asrModel: 'paraformer-realtime-v2',
+    asrModel: 'large-v3',
     storeDirectory: '',
     imagebindInstalled: false,
   });
@@ -439,12 +439,12 @@ const ModelStatusSection = ({ storeDirectory }: { storeDirectory: string }) => {
                       </label>
                       <input
                         type="text"
-                        placeholder="paraformer-realtime-v2"
+                        placeholder="large-v3"
                         value={settings.asrModel}
                         onChange={(e) => handleDashscopeChange('asrModel', e.target.value)}
                         className="w-full px-3 py-2 text-sm border rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                       />
-                      <p className="text-xs text-gray-500 mt-1">Model for speech recognition tasks</p>
+                      <p className="text-xs text-gray-500 mt-1">Local Whisper model for speech recognition (e.g. large-v3, medium, base)</p>
                     </div>
                   </div>
                 </div>

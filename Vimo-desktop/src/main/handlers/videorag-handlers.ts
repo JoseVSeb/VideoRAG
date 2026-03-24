@@ -266,7 +266,7 @@ async function initializeVideoRAGConfig(): Promise<void> {
       analysisModel: settings.analysisModel || 'gpt-4o-mini',
       processingModel: settings.processingModel || 'gpt-4o-mini',
       caption_model: settings.captionModel || 'qwen-vl-plus-latest',
-      asr_model: settings.asrModel || 'paraformer-realtime-v2'
+      asr_model: settings.asrModel || 'large-v3'
     }
     
     console.log('🔧 VideoRAG configuration validation:', {
