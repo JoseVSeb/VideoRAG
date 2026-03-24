@@ -27,7 +27,8 @@ interface SettingsState {
   processingModel: string; // processing model - for massive preprocessing
   analysisModel: string;   // analysis model - for fine-grained analysis
   
-  // DashScope Configuration
+  // DashScope / Caption Provider Configuration
+  dashscopeBaseUrl: string;
   dashscopeApiKey: string;
   captionModel: string;    // video description model
   asrModel: string;        // speech recognition model
@@ -45,6 +46,7 @@ const Settings = () => {
     openaiApiKey: '',
     processingModel: 'gpt-4o-mini',
     analysisModel: 'gpt-4o-mini', 
+    dashscopeBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     dashscopeApiKey: '',
     captionModel: 'qwen-vl-plus-latest',
     asrModel: 'paraformer-realtime-v2',
@@ -175,8 +177,8 @@ const ModelStatusSection = ({ storeDirectory }: { storeDirectory: string }) => {
     setSettings((prev) => ({ ...prev, [field]: value }));
   };
 
-  const handleDashscopeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setSettings((prev) => ({ ...prev, dashscopeApiKey: e.target.value }));
+  const handleDashscopeChange = (field: string, value: string) => {
+    setSettings((prev) => ({ ...prev, [field]: value }));
   };
 
   const handleApiConfigSave = async () => {
@@ -346,11 +348,12 @@ const ModelStatusSection = ({ storeDirectory }: { storeDirectory: string }) => {
                       </label>
                       <input
                         type="text"
+                        placeholder="gpt-4o-mini"
                         value={settings.processingModel}
-                        readOnly
-                        className="w-full px-3 py-2 text-sm border rounded-md bg-gray-100 text-gray-600"
+                        onChange={(e) => handleOpenaiChange('processingModel', e.target.value)}
+                        className="w-full px-3 py-2 text-sm border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
-                      <p className="text-xs text-gray-500 mt-1">Current model for high-volume preprocessing tasks</p>
+                      <p className="text-xs text-gray-500 mt-1">Model for high-volume preprocessing tasks</p>
                     </div>
                     
                     <div>
@@ -359,11 +362,12 @@ const ModelStatusSection = ({ storeDirectory }: { storeDirectory: string }) => {
                       </label>
                       <input
                         type="text"
+                        placeholder="gpt-4o-mini"
                         value={settings.analysisModel}
-                        readOnly
-                        className="w-full px-3 py-2 text-sm border rounded-md bg-gray-100 text-gray-600"
+                        onChange={(e) => handleOpenaiChange('analysisModel', e.target.value)}
+                        className="w-full px-3 py-2 text-sm border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
-                      <p className="text-xs text-gray-500 mt-1">Current model for detailed analysis tasks</p>
+                      <p className="text-xs text-gray-500 mt-1">Model for detailed analysis tasks</p>
                     </div>
                   </div>
                 </div>
@@ -373,8 +377,8 @@ const ModelStatusSection = ({ storeDirectory }: { storeDirectory: string }) => {
               <div className="space-y-4 p-4 border rounded-lg bg-orange-50">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h3 className="text-lg font-semibold text-gray-800">DashScope Configuration</h3>
-                    <p className="text-sm text-gray-600">Configure Alibaba Cloud DashScope API for video captioning</p>
+                    <h3 className="text-lg font-semibold text-gray-800">Caption Provider Configuration</h3>
+                    <p className="text-sm text-gray-600">Configure the API provider for video captioning (supports DashScope, OpenRouter, or any OpenAI-compatible service)</p>
                   </div>
                   <a
                     href="https://www.alibabacloud.com/help/en/model-studio/get-api-key?spm=a2c63.p38356.0.i1"
@@ -390,13 +394,26 @@ const ModelStatusSection = ({ storeDirectory }: { storeDirectory: string }) => {
                 <div className="space-y-4">
                   <div>
                     <label className="text-sm font-medium block mb-2">
-                      DashScope API Key
+                      Base URL
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1"
+                      value={settings.dashscopeBaseUrl}
+                      onChange={(e) => handleDashscopeChange('dashscopeBaseUrl', e.target.value)}
+                      className="w-full px-3 py-2 text-sm border rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-medium block mb-2">
+                      API Key
                     </label>
                     <input
                       type="password"
                       placeholder="sk-..."
                       value={settings.dashscopeApiKey}
-                      onChange={handleDashscopeChange}
+                      onChange={(e) => handleDashscopeChange('dashscopeApiKey', e.target.value)}
                       className="w-full px-3 py-2 text-sm border rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                     />
                   </div>
@@ -408,11 +425,12 @@ const ModelStatusSection = ({ storeDirectory }: { storeDirectory: string }) => {
                       </label>
                       <input
                         type="text"
-                        value="qwen-vl-plus-latest"
-                        readOnly
-                        className="w-full px-3 py-2 text-sm border rounded-md bg-gray-100 text-gray-600"
+                        placeholder="qwen-vl-plus-latest"
+                        value={settings.captionModel}
+                        onChange={(e) => handleDashscopeChange('captionModel', e.target.value)}
+                        className="w-full px-3 py-2 text-sm border rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                       />
-                      <p className="text-xs text-gray-500 mt-1">Fixed model for video captioning tasks</p>
+                      <p className="text-xs text-gray-500 mt-1">Model for video captioning tasks</p>
                     </div>
                     
                     <div>
@@ -421,11 +439,12 @@ const ModelStatusSection = ({ storeDirectory }: { storeDirectory: string }) => {
                       </label>
                       <input
                         type="text"
-                        value="paraformer-realtime-v2"
-                        readOnly
-                        className="w-full px-3 py-2 text-sm border rounded-md bg-gray-100 text-gray-600"
+                        placeholder="paraformer-realtime-v2"
+                        value={settings.asrModel}
+                        onChange={(e) => handleDashscopeChange('asrModel', e.target.value)}
+                        className="w-full px-3 py-2 text-sm border rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                       />
-                      <p className="text-xs text-gray-500 mt-1">Fixed model for speech recognition tasks</p>
+                      <p className="text-xs text-gray-500 mt-1">Model for speech recognition tasks</p>
                     </div>
                   </div>
                 </div>
