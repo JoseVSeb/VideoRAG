@@ -56,11 +56,12 @@ export interface VideoRAGAPI {
     error?: string;
     details?: string;
   }>;
-  // Model file check and download
-  checkModelFiles: (storeDirectory: string) => Promise<{
+  // Model file check and download.
+  // Backend manages its own model storage; no filesystem path needed from frontend.
+  checkModelFiles: (storeDirectory?: string) => Promise<{
     imagebind: boolean;
   }>;
-  downloadImageBind: (storeDirectory: string) => Promise<{
+  downloadImageBind: (storeDirectory?: string) => Promise<{
     success: boolean;
     error?: string;
   }>;
@@ -90,7 +91,7 @@ export interface VideoRAGAPI {
   videorag: {
     healthCheck: () => Promise<{ success: boolean; data?: any; error?: string }>;
     initialize: (config: any) => Promise<{ success: boolean; data?: any; error?: string }>;
-    uploadVideo: (chatId: string, videoPathList: string[], baseStoragePath: string) => Promise<{ success: boolean; data?: any; error?: string }>;
+    uploadVideo: (chatId: string, videoPathList: string[]) => Promise<{ success: boolean; data?: any; error?: string }>;
     getStatus: (chatId: string, type?: string) => Promise<{ success: boolean; data?: any; error?: string }>;
     listIndexed: (chatId: string) => Promise<{ success: boolean; data?: any; error?: string }>;
     sessionStatus: (chatId: string) => Promise<{ success: boolean; data?: any; error?: string }>;

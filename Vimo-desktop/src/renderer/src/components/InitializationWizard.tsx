@@ -58,10 +58,10 @@ const InitializationWizard: React.FC<InitializationWizardProps> = ({ onComplete 
         if (settingsResult.success && settingsResult.settings?.storeDirectory) {
           const existingDirectory = settingsResult.settings.storeDirectory;
           setStoreDirectory(existingDirectory);
-          
-          // Check if models already exist in the stored directory
-          await checkModelFiles(existingDirectory);
         }
+
+        // Check if model exists on backend (backend manages its own paths)
+        await checkModelFiles();
       } catch (error) {
         console.error('Failed to initialize component:', error);
       } finally {
@@ -90,13 +90,11 @@ const InitializationWizard: React.FC<InitializationWizardProps> = ({ onComplete 
     };
   }, []);
 
-  // Check if model files exist
-  const checkModelFiles = async (directory?: string) => {
-    const targetDirectory = directory || storeDirectory;
-    if (!targetDirectory) return { imagebind: false };
-
+  // Check if model files exist by querying the backend
+  const checkModelFiles = async (_directory?: string) => {
     try {
-      const result = await window.api.checkModelFiles(targetDirectory);
+      // Query the backend for its own model status – no local path needed
+      const result = await window.api.checkModelFiles();
       console.log('Model check result:', result);
       
       setImagebindStatus(result.imagebind ? 'completed' : 'pending');
@@ -113,30 +111,29 @@ const InitializationWizard: React.FC<InitializationWizardProps> = ({ onComplete 
     }
   };
 
-  // Select storage directory
+  // Select storage directory (frontend session data storage)
   const selectDirectory = async () => {
     try {
       const result = await window.api.selectFolder();
       if (result.success && result.path) {
         setStoreDirectory(result.path);
-        // Check if model files already exist in this directory
-        setTimeout(() => checkModelFiles(result.path), 500);
+        // After selecting a directory, refresh backend model status
+        setTimeout(() => checkModelFiles(), 500);
       }
     } catch (error) {
       console.error('Failed to select directory:', error);
     }
   };
 
-  // Download ImageBind model
+  // Download ImageBind model – triggers the backend to download its own model
   const downloadImageBind = async () => {
-    if (!storeDirectory) return;
-    
     setImagebindStatus('downloading');
     setDownloadProgress(prev => ({ ...prev, imagebind: 0 }));
     
     try {
-      console.log('Starting ImageBind download...');
-      const result = await window.api.downloadImageBind(storeDirectory);
+      console.log('Starting ImageBind download on backend...');
+      // No storeDirectory argument: backend manages its own model storage
+      const result = await window.api.downloadImageBind();
       
       if (result.success) {
         setImagebindStatus('completed');
@@ -164,14 +161,15 @@ const InitializationWizard: React.FC<InitializationWizardProps> = ({ onComplete 
     setCurrentStep(step);
   };
 
-  // Refresh model status
+  // Refresh model status by querying the backend
   const refreshModelsStatus = async () => {
-    if (!storeDirectory || isRefreshing) return;
+    if (isRefreshing) return;
     
     setIsRefreshing(true);
     
     try {
-      const result = await window.api.checkModelFiles(storeDirectory);
+      // Query backend – no local path needed
+      const result = await window.api.checkModelFiles();
       console.log('Refresh check result:', result);
       
       setImagebindStatus(result.imagebind ? 'completed' : 'pending');

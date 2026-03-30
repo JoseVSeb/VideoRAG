@@ -4,22 +4,34 @@ import { ChildProcess, spawn } from 'child_process'
 import path from 'path'
 import fs from 'fs'
 
+// Default backend URL – overridden by the ``backendUrl`` setting at runtime.
+// The backend URL is configurable so that the frontend can connect to a
+// backend running on a different machine entirely.
 let VIDEORAG_API_BASE_URL = 'http://localhost:64451/api'
 
-// Update API base URL
-function updateAPIBaseURL(port: number) {
-  VIDEORAG_API_BASE_URL = `http://localhost:${port}/api`
+// Import form-data once at module level for multipart uploads
+// (form-data is available as a transitive dependency of axios)
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const FormData = require('form-data')
+
+// Update API base URL from a full backend origin (no /api path) or a full /api URL
+function updateAPIBaseURL(newUrl: string) {
+  // Strip trailing /api if present, then re-append to ensure consistent format
+  const base = newUrl.replace(/\/api(\/.*)?$/, '').replace(/\/$/, '')
+  VIDEORAG_API_BASE_URL = `${base}/api`
   console.log(`📡 Updated API base URL to: ${VIDEORAG_API_BASE_URL}`)
 }
 
 // Python backend process management
 let pythonProcess: ChildProcess | null = null
 
-// Port configuration
+// Port configuration – used only when scanning for a locally-launched backend.
+// When connecting to a remote backend, the full URL is set via the ``backendUrl``
+// setting and port scanning is skipped.
 const PORT_RANGE_START = 64451
 const PORT_RANGE_END = 64470
 
-// Efficiently scan port range to find VideoRAG service
+// Efficiently scan port range to find VideoRAG service on localhost
 async function scanForVideoRAGService(startPort?: number, endPort?: number): Promise<number | null> {
   const start = startPort || PORT_RANGE_START
   const end = endPort || PORT_RANGE_END
@@ -151,7 +163,7 @@ export function startVideoRAGService(): Promise<boolean> {
             const foundPort = await scanForVideoRAGService(PORT_RANGE_START, PORT_RANGE_END)
             if (foundPort) {
               console.log(`✅ Found service on port ${foundPort} after ${scanAttempts} attempts!`)
-              updateAPIBaseURL(foundPort)
+              updateAPIBaseURL(`http://localhost:${foundPort}`)
               initializeVideoRAGConfig()
                 .then(() => safeResolve(true))
                 .catch(() => {
@@ -226,12 +238,13 @@ async function callVideoRAGAPI(endpoint: string, method: 'GET' | 'POST' | 'DELET
   }
 }
 
-// Modify: automatically initialize VideoRAG configuration, dynamically build ImageBind path
+// Initialize VideoRAG configuration – sends only non-path settings to backend.
+// The backend manages its own storage paths via environment variables.
 async function initializeVideoRAGConfig(): Promise<void> {
   try {
     console.log('🔧 Loading VideoRAG configuration...')
     
-    // 1. Load basic configuration from settings
+    // 1. Load settings
     const settingsResult = await loadSettingsFromFile()
     if (!settingsResult.success) {
       throw new Error('Failed to load settings')
@@ -240,27 +253,22 @@ async function initializeVideoRAGConfig(): Promise<void> {
     const settings = settingsResult.settings
     console.log('🔧 Loaded settings:', {
       ...settings,
-      // Hide sensitive information
       openaiApiKey: settings.openaiApiKey ? '***' : 'NOT_SET',
       dashscopeApiKey: settings.dashscopeApiKey ? '***' : 'NOT_SET'
     })
-    
-    // 2. Dynamically build ImageBind model path
-    let imagebindModelPath = ''
-    if (settings.storeDirectory) {
-      imagebindModelPath = require('path').join(settings.storeDirectory, 'imagebind_huge', 'imagebind_huge.pth')
-      console.log('🔧 Constructed ImageBind path:', imagebindModelPath)
+
+    // 2. Apply backend URL from settings (supports remote backends)
+    if (settings.backendUrl) {
+      updateAPIBaseURL(settings.backendUrl)
     }
     
-    // 3. Build VideoRAG configuration object (only set default values for allowed fields)
+    // 3. Build VideoRAG configuration – API keys and model names ONLY.
+    //    Storage paths are intentionally omitted: the backend owns them via
+    //    env vars (VIDEORAG_STORE_DIR, IMAGEBIND_MODEL_PATH) and will reject
+    //    any frontend-supplied paths.
     const videoragConfig = {
-      // Required fields - no default values
       ali_dashscope_api_key: settings.dashscopeApiKey,
       openai_api_key: settings.openaiApiKey,
-      image_bind_model_path: imagebindModelPath, // Use dynamically built path
-      base_storage_path: settings.storeDirectory,
-      
-      // Fields with default values
       ali_dashscope_base_url: settings.dashscopeBaseUrl || 'https://dashscope.aliyuncs.com/compatible-mode/v1',
       openai_base_url: settings.openaiBaseUrl || 'https://api.openai.com/v1',
       analysisModel: settings.analysisModel || 'gpt-4o-mini',
@@ -270,112 +278,38 @@ async function initializeVideoRAGConfig(): Promise<void> {
       asr_model: settings.asrModel || 'large-v3'
     }
     
-    console.log('🔧 VideoRAG configuration validation:', {
+    console.log('🔧 VideoRAG configuration (keys redacted):', {
+      ...videoragConfig,
       ali_dashscope_api_key: videoragConfig.ali_dashscope_api_key ? '✅ SET' : '❌ MISSING',
-      ali_dashscope_base_url: '✅ SET (default allowed)',
       openai_api_key: videoragConfig.openai_api_key ? '✅ SET' : '❌ MISSING',
-      openai_base_url: '✅ SET (default allowed)',
-      image_bind_model_path: videoragConfig.image_bind_model_path ? '✅ SET' : '❌ MISSING',
-      base_storage_path: videoragConfig.base_storage_path ? '✅ SET' : '❌ MISSING',
-      analysisModel: '✅ SET (default allowed)',
-      processingModel: '✅ SET (default allowed)',
-      embeddingModel: '✅ SET (default allowed)',
-      caption_model: '✅ SET (default allowed)',
-      asr_model: '✅ SET (default allowed)'
     })
     
-    // 4. Validate required fields
+    // 4. Validate required API key fields
     const missingFields: string[] = []
-    
     if (!videoragConfig.ali_dashscope_api_key || videoragConfig.ali_dashscope_api_key.trim() === '') {
       missingFields.push('Ali Dashscope API Key (dashscopeApiKey)')
     }
-    
     if (!videoragConfig.openai_api_key || videoragConfig.openai_api_key.trim() === '') {
       missingFields.push('OpenAI API Key (openaiApiKey)')
     }
     
-    if (!videoragConfig.base_storage_path || videoragConfig.base_storage_path.trim() === '') {
-      missingFields.push('Base Storage Path (storeDirectory)')
-    }
-    
-    if (!videoragConfig.image_bind_model_path || videoragConfig.image_bind_model_path.trim() === '') {
-      missingFields.push('ImageBind Model Path (storeDirectory + imagebind_huge/imagebind_huge.pth)')
-    }
-    
-    // 5. If there are missing fields, throw an error and stop the service
     if (missingFields.length > 0) {
-      const errorMessage = `❌ VideoRAG configuration validation failed!\n\nMissing required fields:\n${missingFields.map(field => `  • ${field}`).join('\n')}\n\nPlease run the initialization wizard to configure these settings.`
-      
+      const errorMessage = `❌ VideoRAG configuration validation failed!\n\nMissing required fields:\n${missingFields.map(field => `  • ${field}`).join('\n')}\n\nPlease configure these settings.`
       console.error(errorMessage)
-      
-      // Stop VideoRAG service
       console.log('🛑 Stopping VideoRAG service due to configuration errors...')
       stopVideoRAGService()
-      
       throw new Error(`Missing required configuration fields: ${missingFields.join(', ')}`)
     }
     
-    // 6. Validate ImageBind model file exists
-    try {
-      const { access } = await import('node:fs/promises')
-      await access(videoragConfig.image_bind_model_path)
-      console.log('✅ ImageBind model file verified:', videoragConfig.image_bind_model_path)
-    } catch (error) {
-      const errorMessage = `❌ ImageBind model file not found: ${videoragConfig.image_bind_model_path}\n\nThe file should be downloaded during initialization wizard.\nPlease run the initialization wizard to download the ImageBind model.`
-      
-      console.error(errorMessage)
-      
-      // Stop VideoRAG service
-      console.log('🛑 Stopping VideoRAG service due to missing model file...')
-      stopVideoRAGService()
-      
-      throw new Error(`ImageBind model file not found: ${videoragConfig.image_bind_model_path}`)
-    }
-    
-    // 7. Validate storage directory is accessible/creatable
-    try {
-      const { access, mkdir } = await import('node:fs/promises')
-      try {
-        await access(videoragConfig.base_storage_path)
-        console.log('✅ Storage directory verified:', videoragConfig.base_storage_path)
-      } catch (error) {
-        // Directory not found, attempt to create
-        console.log('📁 Storage directory not found, attempting to create:', videoragConfig.base_storage_path)
-        await mkdir(videoragConfig.base_storage_path, { recursive: true })
-        console.log('✅ Storage directory created successfully:', videoragConfig.base_storage_path)
-      }
-    } catch (error) {
-      const errorMessage = `❌ Cannot access or create storage directory: ${videoragConfig.base_storage_path}\n\nPlease ensure the path is valid and you have write permissions.`
-      
-      console.error(errorMessage)
-      
-      // Stop VideoRAG service
-      console.log('🛑 Stopping VideoRAG service due to storage directory error...')
-      stopVideoRAGService()
-      
-      throw new Error(`Storage directory error: ${videoragConfig.base_storage_path}`)
-    }
-    
-    console.log('🔧 All required configuration validated successfully:', {
-      ...videoragConfig,
-      // Hide sensitive information for logging
-      ali_dashscope_api_key: '***',
-      openai_api_key: '***'
-    })
-    
-    // 8. Call VideoRAG API for initialization
+    // 5. Call VideoRAG API for initialization
     const result = await callVideoRAGAPI('/initialize', 'POST', videoragConfig)
     
     if (result.success) {
       console.log('✅ VideoRAG global configuration set successfully!')
     } else {
       console.error('❌ VideoRAG API initialization failed:', result.error)
-      
-      // Stop VideoRAG service
       console.log('🛑 Stopping VideoRAG service due to API initialization failure...')
       stopVideoRAGService()
-      
       throw new Error(`VideoRAG initialization failed: ${result.error}`)
     }
     
@@ -385,7 +319,7 @@ async function initializeVideoRAGConfig(): Promise<void> {
   }
 }
 
-// Modify: load settings from file, remove hardcoded imagebind path
+// Load settings from file
 async function loadSettingsFromFile(): Promise<{ success: boolean; settings?: any; error?: string }> {
   try {
     const { readFile, access } = await import('node:fs/promises')
@@ -395,17 +329,15 @@ async function loadSettingsFromFile(): Promise<{ success: boolean; settings?: an
     const BOOTSTRAP_CONFIG_FILE = join(homedir(), '.videorag-bootstrap.json')
     
     let settings: any = {
-      // Only set default values for fields with allowed defaults
       openaiBaseUrl: 'https://api.openai.com/v1',
       dashscopeBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
       processingModel: 'gpt-4o-mini',
       analysisModel: 'gpt-4o-mini',
-      
-      // Required fields without default values
       openaiApiKey: '',
       dashscopeApiKey: '',
-      storeDirectory: '', // This determines the imagebind model path
-      // imagebindModelPath field removed, because it is dynamically built
+      storeDirectory: '',
+      // Configurable backend URL (default: localhost)
+      backendUrl: 'http://localhost:64451',
     }
 
     // Try to load bootstrap configuration
@@ -416,7 +348,6 @@ async function loadSettingsFromFile(): Promise<{ success: boolean; settings?: an
       settings = { ...settings, ...bootstrap }
       console.log('📁 Loaded bootstrap config:', Object.keys(bootstrap))
     } catch (error) {
-      // Bootstrap file not found, using defaults
       console.log('📁 Bootstrap config not found, using defaults')
     }
 
@@ -430,7 +361,6 @@ async function loadSettingsFromFile(): Promise<{ success: boolean; settings?: an
         settings = { ...settings, ...mainSettings }
         console.log('📁 Loaded main config from:', mainConfigPath)
       } catch (error) {
-        // Main config file not found, using current settings
         console.log('📁 Main config not found, using bootstrap + defaults')
       }
     }
@@ -541,16 +471,34 @@ export function setupVideoRAGHandlers() {
 
 
 
-  // Upload video for specific session and start indexing
-  ipcMain.handle('videorag:upload-video', async (_, chatId: string, videoPathList: string[], baseStoragePath: string) => {
+  // Upload video for a session and start indexing.
+  // Files are streamed to the backend via multipart/form-data so that the
+  // frontend never needs to tell the backend where its own filesystem is.
+  // The ``baseStoragePath`` parameter is intentionally dropped; the backend
+  // now determines storage location from its own environment variables.
+  ipcMain.handle('videorag:upload-video', async (_, chatId: string, videoPathList: string[]) => {
     try {
-      const result = await callVideoRAGAPI(`/sessions/${chatId}/videos/upload`, 'POST', {
-        video_path_list: videoPathList,
-        base_storage_path: baseStoragePath
-      })
-      return { success: true, data: result }
+      const form = new FormData()
+
+      for (const videoPath of videoPathList) {
+        form.append('videos', fs.createReadStream(videoPath), {
+          filename: path.basename(videoPath),
+        })
+      }
+
+      const response = await axios.post(
+        `${VIDEORAG_API_BASE_URL}/sessions/${chatId}/videos/upload`,
+        form,
+        {
+          headers: form.getHeaders(),
+          maxContentLength: Infinity,
+          maxBodyLength: Infinity,
+          timeout: 3600000, // 1 hour for large video files
+        }
+      )
+      return { success: true, data: response.data }
     } catch (error: any) {
-      return { success: false, error: error.message }
+      return { success: false, error: error.response?.data?.error || error.message || 'Upload failed' }
     }
   })
 
@@ -615,13 +563,27 @@ export function setupVideoRAGHandlers() {
     }
   })
 
-  // Get video duration
+  // Get video duration.
+  // Sends the video file to the backend via multipart upload so that the
+  // backend does not need access to the frontend's filesystem.
   ipcMain.handle('videorag:get-video-duration', async (_, videoPath: string) => {
     try {
       console.log(`📄 Getting video duration for: ${videoPath}`)
-      // Video duration detection may take a long time, especially for large files
-      const result = await callVideoRAGAPI('/video/duration', 'POST', { video_path: videoPath }, 60000)
-      return { success: true, ...result }
+      const form = new FormData()
+      form.append('video', fs.createReadStream(videoPath), {
+        filename: path.basename(videoPath),
+      })
+      const response = await axios.post(
+        `${VIDEORAG_API_BASE_URL}/video/duration`,
+        form,
+        {
+          headers: form.getHeaders(),
+          maxContentLength: Infinity,
+          maxBodyLength: Infinity,
+          timeout: 60000,
+        }
+      )
+      return { success: true, ...response.data }
     } catch (error: any) {
       console.error(`❌ Failed to get video duration for ${videoPath}:`, error.message)
       return { success: false, error: error.message }

@@ -1,7 +1,7 @@
 import { app, BrowserWindow } from 'electron';
 import { electronApp, optimizer } from '@electron-toolkit/utils';
-import { join } from 'node:path';
 import { ipcMain } from 'electron';
+import axios from 'axios';
 import { createMainWindow } from './handlers/window'
 import { setupVideoRAGHandlers, stopVideoRAGService } from './handlers/videorag-handlers';
 import { registerFileHandlers } from './handlers/file-handlers';
@@ -49,138 +49,58 @@ app.on('before-quit', () => {
 });
 
 /**
- * Register model-related IPC handlers
- * Note: This is a simplified version. Full model download functionality 
- * has been moved to a separate module for better maintainability.
+ * Register model-related IPC handlers.
+ * Model management is delegated to the backend: the frontend queries and
+ * triggers downloads via the backend API rather than touching the local filesystem.
  */
 function registerModelHandlers(): void {
-  // Check model files
-  ipcMain.handle('check-model-files', async (_, storeDirectory: string) => {
+  // Check model files by querying the backend /api/config endpoint.
+  // The backend reports whether its own ImageBind model file exists.
+  // No filesystem path needs to be passed from the frontend.
+  ipcMain.handle('check-model-files', async () => {
     try {
-      const { access } = require('fs/promises');
-
-      const imagebindPath = join(storeDirectory, 'imagebind_huge', 'imagebind_huge.pth');
-
-      let imagebind = false;
-
-      try {
-        await access(imagebindPath);
-        imagebind = true;
-      } catch { }
-
-      return { imagebind };
+      const response = await axios.get('http://localhost:64451/api/config', { timeout: 10000 });
+      const data = response.data;
+      return { imagebind: data?.imagebind_model_exists === true };
     } catch (error) {
+      // Backend not reachable – report model as absent
       return { imagebind: false };
     }
   });
 
-  // Download ImageBind model
-  ipcMain.handle('download-imagebind', async (event, storeDirectory: string) => {
+  // Trigger the backend to download the ImageBind model to its own storage.
+  // The frontend no longer downloads the model itself; it delegates to the
+  // backend which stores the file at its own IMAGEBIND_MODEL_PATH.
+  // Callers should poll check-model-files to detect completion.
+  ipcMain.handle('download-imagebind', async (event) => {
     try {
-      const https = require('https');
-      const { createWriteStream, mkdirSync, existsSync } = require('fs');
-      const { access } = require('fs/promises');
-
-      // Create directory if it doesn't exist
-      if (!existsSync(storeDirectory)) {
-        mkdirSync(storeDirectory, { recursive: true });
-      }
-
-      // Create imagebind_huge directory
-      const imagebindDir = join(storeDirectory, 'imagebind_huge');
-      if (!existsSync(imagebindDir)) {
-        mkdirSync(imagebindDir, { recursive: true });
-      }
-
-      const imagebindPath = join(imagebindDir, 'imagebind_huge.pth');
-
-      // Check if file already exists
-      try {
-        await access(imagebindPath);
-        return { success: true, message: 'ImageBind model already exists' };
-      } catch {
-        // File doesn't exist, proceed with download
-      }
-
-      const url = 'https://dl.fbaipublicfiles.com/imagebind/imagebind_huge.pth';
-
-      return new Promise((resolve) => {
-        const file = createWriteStream(imagebindPath);
-        let downloadedBytes = 0;
-        let totalBytes = 0;
-
-        const request = https.get(url, (response) => {
-          if (response.statusCode !== 200) {
-            // Delete the entire imagebind_huge directory on HTTP error
-            const { rmSync } = require('fs');
-            try {
-              rmSync(imagebindDir, { recursive: true, force: true });
-            } catch (cleanupError) {
-              console.error('Failed to cleanup imagebind directory:', cleanupError);
-            }
-            resolve({ success: false, error: `HTTP ${response.statusCode}: ${response.statusMessage}` });
-            return;
-          }
-
-          totalBytes = parseInt(response.headers['content-length'] || '0', 10);
-
-          response.on('data', (chunk) => {
-            downloadedBytes += chunk.length;
-            if (totalBytes > 0) {
-              const progress = Math.round((downloadedBytes / totalBytes) * 100);
-              event.sender.send('download-progress', {
-                type: 'imagebind',
-                progress,
-                downloaded: downloadedBytes,
-                total: totalBytes
-              });
-            }
-          });
-
-          response.pipe(file);
-
-          file.on('finish', () => {
-            file.close();
-            resolve({ success: true, message: 'ImageBind download completed' });
-          });
-
-          file.on('error', (err) => {
-            file.close();
-            // Delete the entire imagebind_huge directory on error
-            const { rmSync } = require('fs');
-            try {
-              rmSync(imagebindDir, { recursive: true, force: true });
-            } catch (cleanupError) {
-              console.error('Failed to cleanup imagebind directory:', cleanupError);
-            }
-            resolve({ success: false, error: err.message });
-          });
-        });
-
-        request.on('error', (err) => {
-          // Delete the entire imagebind_huge directory on error
-          const { rmSync } = require('fs');
+      const response = await axios.post(
+        'http://localhost:64451/api/imagebind/download',
+        {},
+        { timeout: 30000 }
+      );
+      const data = response.data;
+      if (data.success) {
+        // Poll for completion and emit progress events so existing UI still works
+        const poll = async () => {
           try {
-            rmSync(imagebindDir, { recursive: true, force: true });
-          } catch (cleanupError) {
-            console.error('Failed to cleanup imagebind directory:', cleanupError);
+            const cfg = await axios.get('http://localhost:64451/api/config', { timeout: 10000 });
+            if (cfg.data?.imagebind_model_exists) {
+              event.sender.send('download-progress', { type: 'imagebind', progress: 100 });
+            } else {
+              event.sender.send('download-progress', { type: 'imagebind', progress: 50 });
+              setTimeout(poll, 3000);
+            }
+          } catch {
+            setTimeout(poll, 5000);
           }
-          resolve({ success: false, error: err.message });
-        });
-
-        request.setTimeout(300000, () => { // 5 minute timeout
-          request.destroy();
-          // Delete the entire imagebind_huge directory on timeout
-          const { rmSync } = require('fs');
-          try {
-            rmSync(imagebindDir, { recursive: true, force: true });
-          } catch (cleanupError) {
-            console.error('Failed to cleanup imagebind directory:', cleanupError);
-          }
-          resolve({ success: false, error: 'Download timeout' });
-        });
-      });
-
+        };
+        event.sender.send('download-progress', { type: 'imagebind', progress: 0 });
+        setTimeout(poll, 3000);
+        return { success: true, message: 'Download started on backend' };
+      } else {
+        return { success: false, error: data.error || 'Backend download failed' };
+      }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
       return { success: false, error: errorMessage };

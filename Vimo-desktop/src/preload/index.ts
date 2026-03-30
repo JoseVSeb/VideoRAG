@@ -71,11 +71,13 @@ export interface VideoRAGAPI {
     error?: string;
     details?: string;
   }>;
-  // Model file checking and downloading
-  checkModelFiles: (storeDirectory: string) => Promise<{
+  // Model file checking and downloading.
+  // The backend manages its own model storage via environment variables.
+  // No filesystem path needs to be passed from the frontend.
+  checkModelFiles: (storeDirectory?: string) => Promise<{
     imagebind: boolean;
   }>;
-  downloadImageBind: (storeDirectory: string) => Promise<{
+  downloadImageBind: (storeDirectory?: string) => Promise<{
     success: boolean;
     error?: string;
   }>;
@@ -101,7 +103,7 @@ export interface VideoRAGAPI {
   videorag: {
     healthCheck: () => Promise<{ success: boolean; data?: any; error?: string }>;
     initialize: (config: any) => Promise<{ success: boolean; data?: any; error?: string }>;
-    uploadVideo: (chatId: string, videoPathList: string[], baseStoragePath: string) => Promise<{ success: boolean; data?: any; error?: string }>;
+    uploadVideo: (chatId: string, videoPathList: string[]) => Promise<{ success: boolean; data?: any; error?: string }>;
     getStatus: (chatId: string, type?: string) => Promise<{ success: boolean; data?: any; error?: string }>;
     listIndexed: (chatId: string) => Promise<{ success: boolean; data?: any; error?: string }>;
     sessionStatus: (chatId: string) => Promise<{ success: boolean; data?: any; error?: string }>;
@@ -151,11 +153,14 @@ const api: VideoRAGAPI = {
     ipcRenderer.invoke('check-videorag-environment'),
   processWithVideoragEnv: (query: string, videoPath?: string) =>
     ipcRenderer.invoke('process-with-videorag-env', query, videoPath),
-  // Model file checking and downloading
-  checkModelFiles: (storeDirectory: string) =>
-    ipcRenderer.invoke('check-model-files', storeDirectory),
-  downloadImageBind: (storeDirectory: string) =>
-    ipcRenderer.invoke('download-imagebind', storeDirectory),
+  // Model file checking and downloading.
+  // The storeDirectory parameter is no longer used; the backend manages its own
+  // storage.  It is kept in the signature for backward compatibility but is
+  // ignored by the IPC handler.
+  checkModelFiles: (_storeDirectory?: string) =>
+    ipcRenderer.invoke('check-model-files'),
+  downloadImageBind: (_storeDirectory?: string) =>
+    ipcRenderer.invoke('download-imagebind'),
 
   // Event listener implementations
   onDownloadProgress: (callback: (event: any, data: { type: string, progress: number, downloaded?: number, total?: number }) => void) => {
@@ -185,7 +190,7 @@ const api: VideoRAGAPI = {
   videorag: {
     healthCheck: () => ipcRenderer.invoke('videorag:health-check'),
     initialize: (config: any) => ipcRenderer.invoke('videorag:initialize', config),
-    uploadVideo: (chatId: string, videoPathList: string[], baseStoragePath: string) => ipcRenderer.invoke('videorag:upload-video', chatId, videoPathList, baseStoragePath),
+    uploadVideo: (chatId: string, videoPathList: string[]) => ipcRenderer.invoke('videorag:upload-video', chatId, videoPathList),
     getStatus: (chatId: string, type?: string) => ipcRenderer.invoke('videorag:get-status', chatId, type),
     listIndexed: (chatId: string) => ipcRenderer.invoke('videorag:list-indexed', chatId),
     sessionStatus: (chatId: string) => ipcRenderer.invoke('videorag:session-status', chatId),

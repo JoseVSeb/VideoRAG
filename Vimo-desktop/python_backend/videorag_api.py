@@ -19,6 +19,7 @@ import atexit
 import psutil
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+from werkzeug.utils import secure_filename
 from moviepy.editor import VideoFileClip
 import logging
 import warnings
@@ -28,6 +29,21 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 
 from videorag._llm import LLMConfig, openai_embedding, gpt_complete, dashscope_caption_complete
 from videorag import VideoRAG, QueryParam
+
+# ---------------------------------------------------------------------------
+# Backend-owned storage configuration
+# These paths are managed entirely by the backend via environment variables.
+# The frontend must NOT pass filesystem paths to the backend; instead it
+# should use the API endpoints below to query or trigger backend operations.
+# ---------------------------------------------------------------------------
+BACKEND_STORE_DIR = os.environ.get(
+    'VIDEORAG_STORE_DIR',
+    os.path.join(os.path.expanduser('~'), '.videorag', 'store')
+)
+BACKEND_IMAGEBIND_PATH = os.environ.get(
+    'IMAGEBIND_MODEL_PATH',
+    os.path.join(BACKEND_STORE_DIR, 'imagebind_huge', 'imagebind_huge.pth')
+)
 
 # Log recording function
 def log_to_file(message, log_file="log.txt"):
@@ -71,9 +87,15 @@ def read_status_json(file_path: str) -> dict:
         log_to_file(f"⚠️ Failed to read status file {file_path}: {str(e)}")
         return {}
 
-def get_session_status_file(chat_id: str, base_storage_path: str) -> str:
-    """Get session status file path"""
-    session_dir = os.path.join(base_storage_path, f"chat-{chat_id}")
+def get_session_status_file(chat_id: str, base_storage_path: str = None) -> str:
+    """Get session status file path.
+
+    ``base_storage_path`` is optional; when omitted the backend-owned
+    ``BACKEND_STORE_DIR`` is used.  The frontend should never need to supply
+    this value.
+    """
+    storage_path = base_storage_path or BACKEND_STORE_DIR
+    session_dir = os.path.join(storage_path, f"chat-{chat_id}")
     os.makedirs(session_dir, exist_ok=True)
     return os.path.join(session_dir, "status.json")
 
@@ -341,9 +363,18 @@ class VideoRAGProcessManager:
         self.running_processes = {}
         
     def set_global_config(self, config):
-        """Set global configuration"""
-        log_to_file(f"🔄 Global config set: {config}")
-        self.global_config = config
+        """Set global configuration.
+
+        Storage paths (``base_storage_path``, ``image_bind_model_path``) are
+        always overridden with the backend-owned values so that the frontend
+        cannot dictate where files are stored on the backend machine.
+        """
+        merged = dict(config) if config else {}
+        # Backend always owns its own storage paths
+        merged['base_storage_path'] = BACKEND_STORE_DIR
+        merged['image_bind_model_path'] = BACKEND_IMAGEBIND_PATH
+        log_to_file(f"🔄 Global config set (storage overridden by backend env): base={BACKEND_STORE_DIR}")
+        self.global_config = merged
         return True
         
     def start_video_indexing(self, chat_id, video_path_list):
@@ -835,10 +866,13 @@ def create_app():
     """Create Flask application instance"""
     app = Flask(__name__)
     CORS(app)
-    
+
+    # Allow very large uploads for video files (no practical limit)
+    app.config['MAX_CONTENT_LENGTH'] = None
+
     # Register all routes
     register_routes(app)
-    
+
     return app
 
 def register_routes(app):
@@ -849,12 +883,51 @@ def register_routes(app):
         """Health check"""
         return jsonify({"status": "ok", "message": "VideoRAG API is running"})
 
+    @app.route('/api/config', methods=['GET'])
+    def get_backend_config():
+        """Return backend-owned configuration.
+
+        The frontend can call this endpoint to discover where the backend
+        stores its data and whether the required model files are present,
+        without needing to know (or pass) any filesystem paths itself.
+        """
+        return jsonify({
+            "success": True,
+            "store_dir": BACKEND_STORE_DIR,
+            "imagebind_model_path": BACKEND_IMAGEBIND_PATH,
+            "imagebind_model_exists": os.path.exists(BACKEND_IMAGEBIND_PATH),
+        })
+
     @app.route('/api/video/duration', methods=['POST'])
     def get_video_duration():
-        """Get video duration information"""
+        """Get video duration information.
+
+        Accepts either:
+        - A multipart file upload with field name ``video`` (decoupled, remote case).
+        - A JSON body ``{"video_path": "<path>"}`` for same-machine deployments
+          where both frontend and backend share the filesystem.
+        """
+        temp_file = None
         try:
-            data = request.json
-            video_path = data.get('video_path')
+            video_path = None
+
+            if 'video' in request.files:
+                # Decoupled path: frontend uploads the actual file
+                file = request.files['video']
+                temp_dir = os.path.join(BACKEND_STORE_DIR, 'temp')
+                os.makedirs(temp_dir, exist_ok=True)
+                safe_name = secure_filename(file.filename) or f'upload_{int(time.time())}.bin'
+                temp_file = os.path.join(temp_dir, f'tmp_{int(time.time())}_{safe_name}')
+                file.save(temp_file)
+                video_path = temp_file
+            else:
+                # Same-machine fallback: frontend provides a local path
+                data = request.json or {}
+                video_path = data.get('video_path')
+
+            if not video_path:
+                return jsonify({"success": False, "error": "No video provided"}), 400
+
             with VideoFileClip(video_path) as clip:
                 duration = clip.duration
                 fps = clip.fps
@@ -865,39 +938,58 @@ def register_routes(app):
                     "fps": fps,
                     "width": size[0],
                     "height": size[1],
-                    "video_path": video_path
                 }
             log_to_file(f"🔍 Video duration: {result}")
             return jsonify(result)
         except Exception as e:
             log_to_file(f"❌ Video duration extraction error: {str(e)}")
             return jsonify({
-                "success": False, 
+                "success": False,
                 "error": f"Duration extraction error: {str(e)}"
             }), 500
+        finally:
+            if temp_file and os.path.exists(temp_file):
+                try:
+                    os.remove(temp_file)
+                except Exception:
+                    pass
 
     @app.route('/api/initialize', methods=['POST'])
     def initialize_system():
-        """初始化系统配置但不加载ImageBind模型"""
+        """Initialize system configuration.
+
+        The frontend passes API keys and model names only.
+        Storage paths (``base_storage_path``, ``image_bind_model_path``) are
+        intentionally ignored here and always set from the backend's own
+        environment variables (``VIDEORAG_STORE_DIR`` / ``IMAGEBIND_MODEL_PATH``).
+        """
         try:
-            config = request.json
+            config = request.json or {}
+            # Strip any frontend-supplied storage paths to enforce decoupling
+            stripped_keys = [k for k in ('base_storage_path', 'image_bind_model_path') if k in config]
+            for k in stripped_keys:
+                config.pop(k)
+            if stripped_keys:
+                log_to_file(f"⚠️  /api/initialize: ignoring frontend-supplied path key(s) {stripped_keys}; backend uses env vars instead")
             get_process_manager().set_global_config(config)
-            
-            # 只初始化ImageBind管理器配置，不加载模型
-            model_path = config.get("image_bind_model_path")
-            if model_path:
-                get_imagebind_manager().initialize(model_path)
-            
+
+            # Ensure backend storage directory exists
+            os.makedirs(BACKEND_STORE_DIR, exist_ok=True)
+
+            # Configure ImageBind with the backend-owned model path
+            if os.path.exists(BACKEND_IMAGEBIND_PATH):
+                get_imagebind_manager().initialize(BACKEND_IMAGEBIND_PATH)
+
             return jsonify({
-                "success": True, 
+                "success": True,
                 "message": "VideoRAG system configuration set successfully",
                 "imagebind_status": get_imagebind_manager().get_status()
             })
-                
+
         except Exception as e:
             log_to_file(f"❌ Configuration error: {str(e)}")
             return jsonify({
-                "success": False, 
+                "success": False,
                 "error": f"Configuration error: {str(e)}"
             }), 500
 
@@ -997,31 +1089,50 @@ def register_routes(app):
 
     @app.route('/api/sessions/<chat_id>/videos/upload', methods=['POST'])
     def upload_video(chat_id):
-        """Upload video for specific chat session and start indexing - asynchronous operation"""
+        """Upload video for a chat session and start indexing (asynchronous).
+
+        Accepts two modes:
+        1. **Multipart file upload** (decoupled / remote case): send the video
+           files with the ``videos`` field.  The backend saves them under its
+           own ``BACKEND_STORE_DIR`` and indexes from there.
+        2. **JSON path list** (same-machine fallback): send
+           ``{"video_path_list": [...]}`` when the frontend and backend share
+           the same filesystem.  The paths must already exist on the backend
+           machine.
+        """
         log_to_file(f"📝 API: Starting async video upload for chat_id: {chat_id}")
-        
+
         try:
-            data = request.json
-            video_path_list = data.get('video_path_list', [])
-            
-            if not video_path_list:
-                return jsonify({
-                    "success": False, 
-                    "error": "video_path_list is required"
-                }), 400
+            video_path_list = []
+
+            if request.files:
+                # Decoupled path: receive uploaded files and save to backend storage
+                upload_dir = os.path.join(BACKEND_STORE_DIR, 'incoming', f'chat-{chat_id}')
+                os.makedirs(upload_dir, exist_ok=True)
+                uploaded_files = request.files.getlist('videos')
+                if not uploaded_files:
+                    return jsonify({"success": False, "error": "No video files in upload"}), 400
+                for file in uploaded_files:
+                    safe_name = secure_filename(file.filename) or f'video_{int(time.time())}.bin'
+                    save_path = os.path.join(upload_dir, safe_name)
+                    file.save(save_path)
+                    video_path_list.append(save_path)
+                    log_to_file(f"💾 Saved uploaded file: {save_path}")
+            else:
+                # Same-machine fallback: use provided paths directly
+                data = request.json or {}
+                video_path_list = data.get('video_path_list', [])
+                if not video_path_list:
+                    return jsonify({"success": False, "error": "No video files provided"}), 400
+                for vpath in video_path_list:
+                    if not vpath or not os.path.exists(vpath):
+                        return jsonify({"success": False, "error": f"Video file not found: {vpath}"}), 400
 
             log_to_file(f"📹 Videos to process: {len(video_path_list)}")
 
-            for path in video_path_list:
-                if not path or not os.path.exists(path):
-                    return jsonify({
-                        "success": False, 
-                        "error": f"Invalid video path: {path}"
-                    }), 400
-
             # Get video name list
-            video_names = [os.path.basename(path).split('.')[0] for path in video_path_list]
-            
+            video_names = [os.path.basename(p).split('.')[0] for p in video_path_list]
+
             log_to_file(f"🚀 Starting background video processing for {chat_id}")
             
             # Start background indexing process
@@ -1252,7 +1363,59 @@ def register_routes(app):
                 "error": f"Process status error: {str(e)}"
             }), 500
 
-    # New: ImageBind model management endpoint
+    @app.route('/api/imagebind/download', methods=['POST'])
+    def download_imagebind_model():
+        """Download the ImageBind model file to the backend-owned model path.
+
+        This endpoint lets the frontend trigger a model download on the backend
+        machine without knowing (or caring about) the backend filesystem layout.
+        The model is saved to ``BACKEND_IMAGEBIND_PATH``.
+        A progress event-stream is NOT provided here; poll ``/api/config`` to
+        check ``imagebind_model_exists`` after calling this endpoint.
+        """
+        def do_download():
+            import urllib.request
+            url = 'https://dl.fbaipublicfiles.com/imagebind/imagebind_huge.pth'
+            model_dir = os.path.dirname(BACKEND_IMAGEBIND_PATH)
+            os.makedirs(model_dir, exist_ok=True)
+            tmp_path = BACKEND_IMAGEBIND_PATH + '.tmp'
+            try:
+                log_to_file(f"⬇️ Downloading ImageBind model to {BACKEND_IMAGEBIND_PATH}")
+                urllib.request.urlretrieve(url, tmp_path)
+                os.rename(tmp_path, BACKEND_IMAGEBIND_PATH)
+                log_to_file("✅ ImageBind model downloaded successfully")
+            except Exception as exc:
+                log_to_file(f"❌ ImageBind download failed: {exc}")
+                if os.path.exists(tmp_path):
+                    try:
+                        os.remove(tmp_path)
+                    except Exception:
+                        pass
+
+        try:
+            if os.path.exists(BACKEND_IMAGEBIND_PATH):
+                return jsonify({
+                    "success": True,
+                    "message": "ImageBind model already exists",
+                    "model_path": BACKEND_IMAGEBIND_PATH,
+                })
+
+            # Start download in background thread so the HTTP response returns quickly
+            thread = threading.Thread(target=do_download, daemon=True)
+            thread.start()
+
+            return jsonify({
+                "success": True,
+                "message": "ImageBind model download started on backend",
+                "model_path": BACKEND_IMAGEBIND_PATH,
+            })
+        except Exception as e:
+            return jsonify({
+                "success": False,
+                "error": f"Failed to start download: {str(e)}"
+            }), 500
+
+    # ImageBind model management endpoint
     @app.route('/api/imagebind/load', methods=['POST'])
     def load_imagebind():
         """Load ImageBind model"""

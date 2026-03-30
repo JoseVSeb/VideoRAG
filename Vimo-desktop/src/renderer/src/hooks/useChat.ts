@@ -537,12 +537,8 @@ export const useChat = () => {
     try {
       console.log('🚀 Starting async VideoRAG workflow...');
       
-      // Get storage info for base path
-      const storageInfo = await window.api.chatSessions.getStorageInfo();
-      const baseStoragePath = storageInfo.storeDirectory || './videorag-sessions';
-      
-      // Start asynchronous VideoRAG analysis workflow - including session creation and video processing
-      await startRealAnalysis(actualChatId, videosCopy, baseStoragePath);
+      // Start asynchronous VideoRAG analysis workflow
+      await startRealAnalysis(actualChatId, videosCopy);
       
     } catch (error: any) {
       console.error('❌ VideoRAG workflow startup failed:', error);
@@ -551,8 +547,9 @@ export const useChat = () => {
 
   }, [chatId, uploadedVideos, navigate, sessionInfo, activePolling]);
 
-  // Start real VideoRAG analysis - asynchronous flow
-  const startRealAnalysis = async (chatId: string, videos: UploadedVideo[], baseStoragePath: string) => {
+  // Start real VideoRAG analysis - asynchronous flow.
+  // Videos are sent to the backend via HTTP; the backend manages its own storage.
+  const startRealAnalysis = async (chatId: string, videos: UploadedVideo[]) => {
     try {
       console.log('🔄 Starting async video analysis workflow...');
       console.log('🔄 videos:', videos.map(v => v.path));
@@ -563,15 +560,14 @@ export const useChat = () => {
         selectedVideos: videos
       }));
       
-      // Start video analysis directly - includes VideoRAG instance creation and video processing
       console.log('🚀 Starting video analysis (includes VideoRAG creation and processing)...');
       
       try {
-        // Pass video path list and storage path to backend
         const video_path_list = videos.map(v => v.path);
         console.log('🚀 Starting video upload/indexing with videos:', video_path_list);
         
-        const uploadResult = await window.api.videorag.uploadVideo(chatId, video_path_list, baseStoragePath);
+        // No baseStoragePath: the backend owns its storage paths
+        const uploadResult = await window.api.videorag.uploadVideo(chatId, video_path_list);
         
         if (!uploadResult.success) {
           throw new Error(`Failed to start video processing: ${uploadResult.error}`);

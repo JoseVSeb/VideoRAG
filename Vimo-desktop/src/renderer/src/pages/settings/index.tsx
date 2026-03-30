@@ -35,8 +35,11 @@ interface SettingsState {
   asrModel: string;        // speech recognition model
   
   // System Configuration
-  storeDirectory: string; // model storage directory
+  storeDirectory: string; // frontend session storage directory
   
+  // Backend connection – allows connecting to a remote backend
+  backendUrl: string;
+
   // Initialization tracking
   imagebindInstalled: boolean;
 }
@@ -53,6 +56,7 @@ const Settings = () => {
     captionModel: 'qwen-vl-plus-latest',
     asrModel: 'large-v3',
     storeDirectory: '',
+    backendUrl: 'http://localhost:64451',
     imagebindInstalled: false,
   });
 
@@ -63,7 +67,8 @@ const Settings = () => {
 
 
 // Model Status Section Component
-const ModelStatusSection = ({ storeDirectory }: { storeDirectory: string }) => {
+// Queries the backend for model status rather than checking the local filesystem.
+const ModelStatusSection = () => {
   const [modelStatus, setModelStatus] = useState<{
     imagebind: boolean;
     checking: boolean;
@@ -73,15 +78,11 @@ const ModelStatusSection = ({ storeDirectory }: { storeDirectory: string }) => {
   });
 
   const checkModelStatus = async () => {
-    if (!storeDirectory) {
-      setModelStatus(prev => ({ ...prev, imagebind: false }));
-      return;
-    }
-
     setModelStatus(prev => ({ ...prev, checking: true }));
     
     try {
-      const result = await window.api.checkModelFiles(storeDirectory);
+      // No storeDirectory needed: backend reports its own model status
+      const result = await window.api.checkModelFiles();
       setModelStatus({
         imagebind: result.imagebind,
         checking: false,
@@ -94,17 +95,16 @@ const ModelStatusSection = ({ storeDirectory }: { storeDirectory: string }) => {
 
   useEffect(() => {
     checkModelStatus();
-  }, [storeDirectory]);
+  }, []);
 
   const getStatusMessage = () => {
-    if (!storeDirectory) return 'Please select a storage directory first';
     if (modelStatus.checking) return 'Checking model status...';
     if (modelStatus.imagebind) return 'Ready to use';
-    return 'Model not found - run initialization wizard';
+    return 'Model not found on backend – run initialization wizard or set IMAGEBIND_MODEL_PATH env var';
   };
 
   const getStatusColor = () => {
-    if (!storeDirectory || !modelStatus.imagebind) return 'text-gray-500';
+    if (!modelStatus.imagebind) return 'text-gray-500';
     if (modelStatus.imagebind) return 'text-green-600';
     return 'text-red-600';
   };
@@ -138,7 +138,7 @@ const ModelStatusSection = ({ storeDirectory }: { storeDirectory: string }) => {
           variant="outline"
           size="sm"
           onClick={checkModelStatus}
-          disabled={modelStatus.checking || !storeDirectory}
+          disabled={modelStatus.checking}
         >
           {modelStatus.checking ? (
             <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
@@ -501,7 +501,7 @@ const ModelStatusSection = ({ storeDirectory }: { storeDirectory: string }) => {
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              <ModelStatusSection storeDirectory={settings.storeDirectory} />
+              <ModelStatusSection />
             </CardContent>
           </Card>
 
@@ -533,8 +533,56 @@ const ModelStatusSection = ({ storeDirectory }: { storeDirectory: string }) => {
                   className="w-full px-3 py-2 text-sm border rounded-md bg-gray-50 focus:outline-none"
                 />
                 <p className="text-xs text-muted-foreground mt-1">
-                  Directory for storing AI models (ImageBind) and Vimo cache data
+                  Directory for storing Vimo frontend session data (chat history, etc.)
                 </p>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Backend Connection */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center gap-3">
+                <div className="flex size-10 items-center justify-center rounded-lg bg-green-100 text-green-600">
+                  <ExternalLink size={20} />
+                </div>
+                <div>
+                  <CardTitle>Backend Connection</CardTitle>
+                  <CardDescription>
+                    Configure the VideoRAG backend URL. Change this to connect to a remote backend on another machine.
+                  </CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <label className="text-sm font-medium block mb-2">
+                  Backend URL
+                </label>
+                <input
+                  type="text"
+                  placeholder="http://localhost:64451"
+                  value={settings.backendUrl}
+                  onChange={(e) => setSettings(prev => ({ ...prev, backendUrl: e.target.value }))}
+                  className="w-full px-3 py-2 text-sm border rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  URL of the VideoRAG Python backend. Use <code>http://localhost:64451</code> for
+                  a local backend, or set to a remote address (e.g. <code>http://192.168.1.10:64451</code>)
+                  for a backend on another machine. The backend manages its own model and data storage
+                  via <code>VIDEORAG_STORE_DIR</code> and <code>IMAGEBIND_MODEL_PATH</code> environment variables.
+                </p>
+              </div>
+              <div className="flex justify-end">
+                <Button
+                  variant="outline"
+                  onClick={handleApiConfigSave}
+                  disabled={apiConfigStatus === 'saving'}
+                  className="px-6"
+                >
+                  {getApiConfigButtonIcon()}
+                  <span className="ml-2">Save Backend URL</span>
+                </Button>
               </div>
             </CardContent>
           </Card>

@@ -20,34 +20,34 @@ export const VideoPreviewCard: React.FC<VideoPreviewCardProps> = ({
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Reset states when video URL changes
+    // Reset states when video changes
     setDuration(null);
     setIsLoading(true);
 
-    const fetchVideoDuration = async () => {
-      try {
-        if (!video.path) {
-          console.error('❌ VideoPreviewCard: video.path is undefined or empty');
-          return;
-        }
-        
-        // Use window.api to call video duration API
-        const result = await window.api.videorag.getVideoDuration(video.path);
-        
-        if (result.success) {
-          setDuration(result.duration ?? null);
-        } else {
-          console.error('Failed to get video duration:', result.error);
-        }
-      } catch (error) {
-        console.error('Error fetching video duration:', error);
-      } finally {
-        setIsLoading(false);
-      }
+    if (!video.url) {
+      setIsLoading(false);
+      return;
+    }
+
+    // Use the HTML5 Video API to read duration locally – no backend call needed.
+    // This works regardless of whether the backend is on the same machine or remote.
+    const videoEl = document.createElement('video');
+
+    videoEl.onloadedmetadata = () => {
+      setDuration(videoEl.duration);
+      setIsLoading(false);
+      videoEl.src = '';
     };
 
-    fetchVideoDuration();
-  }, [video.path]);
+    videoEl.onerror = () => {
+      setIsLoading(false);
+      videoEl.src = '';
+    };
+
+    videoEl.src = video.url;
+    // Prevent the element from actually loading video data beyond metadata
+    videoEl.preload = 'metadata';
+  }, [video.url]);
 
   const formatDuration = (seconds: number): string => {
     const mins = Math.floor(seconds / 60);

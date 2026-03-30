@@ -55,7 +55,7 @@ interface UseVideoRAGReturn {
   // API operations
   initialize: (config: VideoRAGConfig) => Promise<boolean>
 
-  uploadVideo: (videoPath: string, baseStoragePath: string) => Promise<boolean>
+  uploadVideo: (videoPath: string) => Promise<boolean>
   refreshStatus: () => Promise<void>
   
   // Loading states
@@ -117,18 +117,17 @@ export function useVideoRAG(): UseVideoRAGReturn {
 
 
   // Upload and index video(s) for current session
-  const uploadVideo = useCallback(async (videoPath: string, baseStoragePath: string): Promise<boolean> => {
+  const uploadVideo = useCallback(async (videoPath: string): Promise<boolean> => {
     if (!chatId) return false
     
     try {
       setLoading(prev => ({ ...prev, uploading: true }))
       setError(null)
       
-      // Convert single video path to array for the new API
-      const result = await window.api.videorag.uploadVideo(chatId, [videoPath], baseStoragePath)
+      // Convert single video path to array for the API
+      const result = await window.api.videorag.uploadVideo(chatId, [videoPath])
       
       if (result.success) {
-        // Processing started successfully
         return true
       } else {
         setError(result.error || 'Failed to upload video')

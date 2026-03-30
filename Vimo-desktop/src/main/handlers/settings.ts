@@ -82,6 +82,8 @@ export function registerSettingsHandlers(): void {
         pythonVersion: '',
         selectedCondaEnvironment: '',
         imagebindInstalled: false,
+        // Configurable backend URL – change this to connect to a remote backend
+        backendUrl: 'http://localhost:64451',
       };
 
       // Try to load bootstrap config first
@@ -127,6 +129,7 @@ export function registerSettingsHandlers(): void {
           pythonVersion: '',
           selectedCondaEnvironment: '',
           imagebindInstalled: false,
+          backendUrl: 'http://localhost:64451',
         },
       };
     }
