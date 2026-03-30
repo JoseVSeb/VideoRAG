@@ -332,7 +332,7 @@ class VideoRAG:
                 self.audio_sample_rate,  # Pass the sample rate
             )
             
-            # Step2: obtain transcript with ASR (online)
+            # Step2: obtain transcript with ASR (local whisper)
             if progress_callback:
                 progress_callback("Audio Processing", f"Performing speech recognition for {video_name}...")
             

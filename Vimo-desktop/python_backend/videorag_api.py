@@ -645,7 +645,7 @@ def index_video_worker_process(chat_id, video_path_list, global_config, server_u
         
         videorag_llm_config = LLMConfig(
             embedding_func_raw=openai_embedding,
-            embedding_model_name="text-embedding-3-small",
+            embedding_model_name=global_config.get("embeddingModel", "text-embedding-3-small"),
             embedding_dim=1536,
             embedding_max_token_size=8192,
             embedding_batch_num=32,
@@ -766,7 +766,7 @@ def query_worker_process(chat_id, query, global_config, server_url):
 
         videorag_llm_config = LLMConfig(
             embedding_func_raw=openai_embedding,
-            embedding_model_name="text-embedding-3-small",
+            embedding_model_name=global_config.get("embeddingModel", "text-embedding-3-small"),
             embedding_dim=1536,
             embedding_max_token_size=8192,
             embedding_batch_num=32,

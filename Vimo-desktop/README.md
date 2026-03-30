@@ -92,6 +92,9 @@ pip install neo4j hnswlib xxhash nano-vectordb
 # Language models and utilities
 pip install tiktoken openai tenacity dashscope
 
+# Speech recognition (local ASR)
+pip install faster-whisper
+
 # Server
 pip install flask psutil flask_cors setproctitle
 ```
